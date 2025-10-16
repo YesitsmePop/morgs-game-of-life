@@ -252,7 +252,3 @@
   background-size: 400% 400%;
   animation: gradient-shift 15s ease infinite;
 }
-
-.exception {
-  color: oklch(0.08 0.02 240) !important;
-}

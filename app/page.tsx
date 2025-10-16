@@ -27,11 +27,11 @@ export default function Home() {
             MORG&apos;S
           </span>
           <br />
-          <span className="text-foreground exception">GAME OF LIFE</span>
+          <span className="text-foreground">GAME OF LIFE</span>
         </h1>
 
   {/* Credit line */}
-  <p className="mt-2 text-sm text-muted-foreground opacity-80">Developed by Moran McDonald © 2025</p>
+  <p className="mt-2 text-sm text-muted-foreground opacity-80">Developed by Morgan McDonald © 2025</p>
 
         {/* Begin button */}
         <Button

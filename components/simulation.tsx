@@ -104,6 +104,132 @@ const templates = {
     { x: 1, y: 1 },
     { x: 2, y: 1 },
   ],
+  pulsar: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 2, y: 0 },
+    { x: -2, y: 2 },
+    { x: -2, y: 3 },
+    { x: -2, y: 4 },
+    { x: 0, y: 5 },
+    { x: 1, y: 5 },
+    { x: 2, y: 5 },
+    { x: 3, y: 2 },
+    { x: 3, y: 3 },
+    { x: 3, y: 4 },
+    { x: 5, y: 2 },
+    { x: 5, y: 3 },
+    { x: 5, y: 4 },
+    { x: 6, y: 0 },
+    { x: 7, y: 0 },
+    { x: 8, y: 0 },
+    { x: 6, y: 5 },
+    { x: 7, y: 5 },
+    { x: 8, y: 5 },
+    { x: 10, y: 2 },
+    { x: 10, y: 3 },
+    { x: 10, y: 4 },
+    { x: 0, y: 7 },
+    { x: 1, y: 7 },
+    { x: 2, y: 7 },
+    { x: -2, y: 8 },
+    { x: -2, y: 9 },
+    { x: -2, y: 10 },
+    { x: 0, y: 12 },
+    { x: 1, y: 12 },
+    { x: 2, y: 12 },
+    { x: 3, y: 8 },
+    { x: 3, y: 9 },
+    { x: 3, y: 10 },
+    { x: 5, y: 8 },
+    { x: 5, y: 9 },
+    { x: 5, y: 10 },
+    { x: 10, y: 8 },
+    { x: 10, y: 9 },
+    { x: 10, y: 10 },
+    { x: 6, y: 7 },
+    { x: 7, y: 7 },
+    { x: 8, y: 7 },
+    { x: 6, y: 12 },
+    { x: 7, y: 12 },
+    { x: 8, y: 12 }
+  ],
+  beacon: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+    { x: 2, y: 2 },
+    { x: 3, y: 2 },
+    { x: 2, y: 3 },
+    { x: 3, y: 3 },
+  ],
+  popcorn: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: -1, y: 1 },
+    { x: 0, y: 2 },
+  ],
+  loaf: [
+    { x: 1, y: 0 },
+    { x: 2, y: 0 },
+    { x: 0, y: 1 },
+    { x: 3, y: 1 },
+    { x: 1, y: 2 },
+    { x: 3, y: 2 },
+    { x: 2, y: 3 },
+  ],
+  beehive: [
+    { x: 1, y: 0 },
+    { x: 2, y: 0 },
+    { x: 0, y: 1 },
+    { x: 3, y: 1 },
+    { x: 1, y: 2 },
+    { x: 2, y: 2 },
+  ],
+  gun: [
+    // block
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: -1 },
+    { x: 1, y: -1 },
+    // bomb
+    { x: 10, y: 0 },
+    { x: 10, y: -1},
+    { x: 10, y: 1 },
+    { x: 11, y: 2 },
+    { x: 12, y: 3 },
+    { x: 13, y: 3 },
+    { x: 15, y: 2 },
+    { x: 16, y: 1 },
+    { x: 16, y: 0 },
+    { x: 16, y: -1 },
+    { x: 17, y: 0 },
+    { x: 15, y: -2 },
+    { x: 13, y: -3 },
+    { x: 12, y: -3 },
+    { x: 11, y: -2 },
+    { x: 14, y: 0 },
+    // bracket
+    { x: 20, y: -1 },
+    { x: 20, y: -2 },
+    { x: 20, y: -3 },
+    { x: 21, y: -1 },
+    { x: 21, y: -2 },
+    { x: 21, y: -3 },
+    { x: 22, y: -4 },
+    { x: 22, y: 0 },
+    { x: 24, y: 0 },
+    { x: 24, y: 1 },
+    { x: 24, y: -4 },
+    { x: 24, y: -5 },
+    // block
+    { x: 34, y: -2 },
+    { x: 34, y: -3 },
+    { x: 35, y: -2 },
+    { x: 35, y: -3 }
+  ],
 }
 
 export function Simulation() {
@@ -113,6 +239,7 @@ export function Simulation() {
   const [mode, setMode] = useState<Mode>("classic")
   const [hue, setHue] = useState(270) // Default violet
   const [showHueDropdown, setShowHueDropdown] = useState(false)
+  const [colorCycle, setColorCycle] = useState(false)
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)
   const [zoom, setZoom] = useState(1)
@@ -124,6 +251,9 @@ export function Simulation() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationRef = useRef<number | null>(null)
   const lastUpdateRef = useRef<number>(0)
+  const cycleRef = useRef<number | null>(null)
+  const cycleStartRef = useRef<number>(0)
+  const cycleStartHueRef = useRef<number>(hue)
 
   useEffect(() => {
     if (!isRunning) return
@@ -141,6 +271,81 @@ export function Simulation() {
       if (animationRef.current) cancelAnimationFrame(animationRef.current)
     }
   }, [isRunning, speed, mode])
+
+  // Keyboard controls: Space to toggle play/pause, 'p' to toggle mode, 1-4 to set speed
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // ignore when typing in inputs
+      const active = document.activeElement
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return
+
+      if (e.code === "Space") {
+        e.preventDefault()
+        setIsRunning((r) => !r)
+      }
+
+      if (e.key.toLowerCase() === "p") {
+        setMode((m) => (m === "classic" ? "prime" : "classic"))
+      }
+
+      if (e.key.toLowerCase() === "r") {
+        setGrid(new Set())
+        setIsRunning(false)
+      }
+
+      if (/^[1-4]$/.test(e.key)) {
+        // Map 1->slow, 2->med, 3->fast, 4->turbo
+        switch (e.key) {
+          case "1":
+            setSpeed(1000)
+            break
+          case "2":
+            setSpeed(500)
+            break
+          case "3":
+            setSpeed(100)
+            break
+          case "4":
+            setSpeed(25)
+            break
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+
+  // Color cycling effect: when enabled, slowly cycle hue through 0-360
+  useEffect(() => {
+    if (!colorCycle) {
+      if (cycleRef.current) {
+        cancelAnimationFrame(cycleRef.current)
+        cycleRef.current = null
+      }
+      return
+    }
+
+    cycleStartRef.current = performance.now()
+    cycleStartHueRef.current = hue
+
+    const step = (ts: number) => {
+      const elapsed = ts - cycleStartRef.current
+      // cycle every 20 seconds (20000ms)
+      const period = 20000
+      const progress = (elapsed % period) / period
+      const newHue = Math.floor((progress * 360 + cycleStartHueRef.current) % 360)
+      setHue(newHue)
+      cycleRef.current = requestAnimationFrame(step)
+    }
+
+    cycleRef.current = requestAnimationFrame(step)
+
+    return () => {
+      if (cycleRef.current) cancelAnimationFrame(cycleRef.current)
+      cycleRef.current = null
+    }
+  }, [colorCycle])
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current
@@ -318,6 +523,8 @@ export function Simulation() {
     setIsRunning(false)
   }
 
+  const [showPresets, setShowPresets] = useState(false)
+
   return (
     <main className="relative min-h-screen bg-background overflow-hidden">
       <ThemeToggle />
@@ -343,7 +550,10 @@ export function Simulation() {
                 min="0"
                 max="360"
                 value={hue}
-                onChange={(e) => setHue(Number(e.target.value))}
+                onChange={(e) => {
+                  setColorCycle(false)
+                  setHue(Number(e.target.value))
+                }}
                 className="w-full h-2 rounded-lg appearance-none cursor-pointer"
                 style={{
                   background: `linear-gradient(to right, 
@@ -358,41 +568,68 @@ export function Simulation() {
               />
               <div className="mt-3 flex gap-2 flex-wrap">
                 <button
-                  onClick={() => setHue(240)}
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(240)
+                  }}
                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
                   style={{ background: "hsl(240, 70%, 60%)" }}
                   title="Blue"
                 />
                 <button
-                  onClick={() => setHue(270)}
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(270)
+                  }}
                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
                   style={{ background: "hsl(270, 70%, 60%)" }}
                   title="Violet"
                 />
                 <button
-                  onClick={() => setHue(300)}
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(300)
+                  }}
                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
                   style={{ background: "hsl(300, 70%, 60%)" }}
                   title="Magenta"
                 />
                 <button
-                  onClick={() => setHue(0)}
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(0)
+                  }}
                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
                   style={{ background: "hsl(0, 70%, 60%)" }}
                   title="Red"
                 />
                 <button
-                  onClick={() => setHue(120)}
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(120)
+                  }}
                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
                   style={{ background: "hsl(120, 70%, 60%)" }}
                   title="Green"
                 />
                 <button
-                  onClick={() => setHue(180)}
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(180)
+                  }}
                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
                   style={{ background: "hsl(180, 70%, 60%)" }}
                   title="Cyan"
                 />
+                <button
+                  onClick={() => setColorCycle((c) => !c)}
+                  className={`w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform flex items-center justify-center ${colorCycle ? "ring-2 ring-offset-1 ring-pink-400" : ""}`}
+                  title="Cycle hues"
+                >
+                  <svg viewBox="0 0 24 24" className="w-5 h-5">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  </svg>
+                </button>
               </div>
             </div>
           )}
@@ -481,28 +718,6 @@ export function Simulation() {
       </div>
 
   <div className="absolute bottom-28 left-1/2 -translate-x-1/2 md:bottom-6 md:left-6 md:-translate-x-0 z-10 flex flex-col items-center gap-2 md:flex-row md:gap-2">
-        <Button
-          onClick={() => loadTemplate("glider")}
-          variant="outline"
-          className="glass-card border-violet/50 hover:border-violet hover:bg-violet/20 cursor-pointer"
-        >
-          Glider
-        </Button>
-        <Button
-          onClick={() => loadTemplate("blinker")}
-          variant="outline"
-          className="glass-card border-violet/50 hover:border-violet hover:bg-violet/20 cursor-pointer"
-        >
-          Blinker
-        </Button>
-        
-        <Button
-          onClick={() => loadTemplate("toad")}
-          variant="outline"
-          className="glass-card border-violet/50 hover:border-violet hover:bg-violet/20 cursor-pointer"
-        >
-          Toad
-        </Button>
         {/* speed buttons row (mobile) - centers under presets */}
         <div className="flex gap-2 mt-2 md:hidden">
           <Button
@@ -556,6 +771,33 @@ export function Simulation() {
         onWheel={handleWheel}
         className={cursorOnCell ? "w-full h-full cursor-pointer" : "w-full h-full cursor-crosshair"}
       />
+      {/* Presets dropdown (bottom-center) - opens upward */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center">
+        <div className="relative">
+          <Button
+            onClick={() => setShowPresets((s) => !s)}
+            size="sm"
+            variant="outline"
+            className="glass-card border-electric-blue/50 hover:border-electric-blue cursor-pointer"
+          >
+            Presets
+          </Button>
+
+          {showPresets && (
+            <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 glass-card border border-electric-blue/50 rounded-lg p-3 w-[90vw] md:w-80 max-w-xs grid grid-cols-3 gap-2 origin-bottom">
+              <button onClick={() => { loadTemplate('glider'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Glider</button>
+              <button onClick={() => { loadTemplate('blinker'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Blinker</button>
+              <button onClick={() => { loadTemplate('toad'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Toad</button>
+              <button onClick={() => { loadTemplate('pulsar'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Pulsar</button>
+              <button onClick={() => { loadTemplate('beacon'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Beacon</button>
+              <button onClick={() => { loadTemplate('popcorn'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Popcorn</button>
+              <button onClick={() => { loadTemplate('loaf'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Loaf</button>
+              <button onClick={() => { loadTemplate('beehive'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Beehive</button>
+              <button onClick={() => { loadTemplate('gun'); setShowPresets(false); }} className="p-2 rounded bg-transparent border-2 border-white/10 hover:border-violet/50">Gun</button>
+            </div>
+          )}
+        </div>
+      </div>
     </main>
   )
 }
