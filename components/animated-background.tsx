@@ -3,7 +3,7 @@
 export function AnimatedBackground() {
   return (
     <div className="fixed inset-0 -z-10 overflow-hidden">
-      <div className="absolute inset-0 dark:animated-gradient animated-gradient-light" />
+      <div className="absolute inset-0 animated-gradient" />
 
       <div
         className="absolute top-20 left-20 w-64 h-64 glass-card rounded-3xl opacity-30"

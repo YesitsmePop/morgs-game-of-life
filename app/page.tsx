@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { CursorGlow } from "@/components/cursor-glow"
 import { AnimatedBackground } from "@/components/animated-background"
 import { Simulation } from "@/components/simulation"
@@ -18,7 +17,6 @@ export default function Home() {
     <main className="relative min-h-screen flex items-center justify-center cursor-glow overflow-hidden">
       <AnimatedBackground />
       <CursorGlow />
-      <ThemeToggle />
 
       <div className="relative z-10 flex flex-col items-center gap-12 px-4 animate-fade-in">
         {/* Main title */}
@@ -31,7 +29,7 @@ export default function Home() {
         </h1>
 
   {/* Credit line */}
-  <p className="mt-2 text-sm text-muted-foreground opacity-80">Developed by Morgan McDonald © 2025</p>
+  <p className="mt-2 text-sm text-muted-foreground opacity-80">Developed by Morgan McDonald - Inspired by Conway's Game of Life</p>
 
         {/* Begin button */}
         <Button
