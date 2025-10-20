@@ -37,7 +37,7 @@ export default function RootLayout({
 
         {/* Version text - bottom right corner */}
         <div className="fixed bottom-4 right-4 z-50 text-white text-sm opacity-60 pointer-events-none select-none">
-          Version: 1.3
+          Version: 1.4
         </div>
       </body>
     </html>

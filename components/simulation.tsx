@@ -1,86 +1,21 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useRef, useEffect, useCallback } from "react"
+import React, { useState, useRef, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { Play, Pause, RotateCcw, Zap, ChevronDown, Palette, Grid3X3 } from "lucide-react"
+import { Slider } from "@/components/ui/slider"
+import { Play, Pause, RotateCcw, Zap, ChevronDown, Palette, Grid3X3, Download } from "lucide-react"
+import { SpatialGrid } from "@/lib/spatial-grid"
+import { nextGenerationOptimized } from "@/lib/optimized-algorithms"
+import { ImportExportModal } from "@/components/importExport"
+import { WebGLRenderer } from "@/components/webgl-renderer"
 
 const CELL_SIZE = 20
-const MIN_ZOOM = 0.5
-const MAX_ZOOM = 3
+const MIN_ZOOM = 0.01
+const MAX_ZOOM = 10
 
-type Grid = Set<string>
 type Mode = "classic" | "prime"
 
 const cellKey = (x: number, y: number) => `${x},${y}`
-
-const isPrime = (n: number): boolean => {
-  if (n < 2) return false
-  if (n === 2) return true
-  if (n % 2 === 0) return false
-  for (let i = 3; i <= Math.sqrt(n); i += 2) {
-    if (n % i === 0) return false
-  }
-  return true
-}
-
-const countNeighbors = (grid: Grid, x: number, y: number): number => {
-  let count = 0
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0) continue
-      if (grid.has(cellKey(x + dx, y + dy))) count++
-    }
-  }
-  return count
-}
-
-const nextGeneration = (grid: Grid, mode: Mode): Grid => {
-  const newGrid = new Set<string>()
-  const checked = new Set<string>()
-
-  grid.forEach((key) => {
-    const [x, y] = key.split(",").map(Number)
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const nx = x + dx
-        const ny = y + dy
-        const nKey = cellKey(nx, ny)
-
-        if (checked.has(nKey)) continue
-        checked.add(nKey)
-
-        const neighbors = countNeighbors(grid, nx, ny)
-        const isAlive = grid.has(nKey)
-
-        if (mode === "classic") {
-          if (isAlive) {
-            if (neighbors === 2 || neighbors === 3) {
-              newGrid.add(nKey)
-            }
-          } else {
-            if (neighbors === 3) {
-              newGrid.add(nKey)
-            }
-          }
-        } else {
-          if (isAlive) {
-            if (neighbors === 6 || neighbors === 7) {
-              newGrid.add(nKey)
-            }
-          } else {
-            if (isPrime(neighbors)) {
-              newGrid.add(nKey)
-            }
-          }
-        }
-      }
-    }
-  })
-
-  return newGrid
-}
 
 
 // Load presets from external file (kinda like my own language)
@@ -126,12 +61,15 @@ const loadPresets = async (): Promise<Record<string, Array<{ x: number; y: numbe
 }
 
 export function Simulation() {
-  const [grid, setGrid] = useState<Grid>(new Set())
+  const [grid, setGrid] = useState<SpatialGrid>(new SpatialGrid())
   const [isRunning, setIsRunning] = useState(false)
-  const [speed, setSpeed] = useState(500)
+  const [speedSlider, setSpeedSlider] = useState(50)
+  const speed = Math.round(1000 - speedSlider * 9.9)
   const [mode, setMode] = useState<Mode>("classic")
   const [hue, setHue] = useState(270) // Default violet
   const [showHueDropdown, setShowHueDropdown] = useState(false)
+  const [showSpeedDropdown, setShowSpeedDropdown] = useState(false)
+
   const [colorCycle, setColorCycle] = useState(false)
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)
@@ -141,6 +79,7 @@ export function Simulation() {
   const [dragStartPan, setDragStartPan] = useState({ x: 0, y: 0 })
   const [cursorOnCell, setCursorOnCell] = useState(false)
   const [templates, setTemplates] = useState<Record<string, Array<{ x: number; y: number }>>>({})
+  const [customPresets, setCustomPresets] = useState<Record<string, Array<{ x: number; y: number }>>>({})
   const [showGrid, setShowGrid] = useState(true)
   const [isKeyboardPanning, setIsKeyboardPanning] = useState(false)
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set())
@@ -150,11 +89,19 @@ export function Simulation() {
   const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set())
   const [originalCellPositions, setOriginalCellPositions] = useState<Set<string>>(new Set())
+  const [isDraggingHandle, setIsDraggingHandle] = useState(false)
   const [isDraggingSelection, setIsDraggingSelection] = useState(false)
+  const [isMovingSelection, setIsMovingSelection] = useState(false)
+  const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [selectionOffset, setSelectionOffset] = useState({ x: 0, y: 0 })
+  const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null)
   const [editMode, setEditMode] = useState<"place" | "select">("place")
   const [tempPreset, setTempPreset] = useState<Array<{ x: number; y: number }>>([])
   const [justCompletedSelection, setJustCompletedSelection] = useState(false)
   const [showControls, setShowControls] = useState(false)
+  const [showImportExport, setShowImportExport] = useState(false)
+const [presetTab, setPresetTab] = useState<"built-in" | "custom">("built-in")
+  const [isSelectingForExport, setIsSelectingForExport] = useState(false)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationRef = useRef<number | null>(null)
@@ -179,7 +126,7 @@ export function Simulation() {
     const animate = (timestamp: number) => {
       if (timestamp - lastUpdateRef.current >= speed) {
         setGrid((prev) => {
-          return nextGeneration(prev, mode)
+          return nextGenerationOptimized(prev, mode)
         })
         lastUpdateRef.current = timestamp
       }
@@ -217,7 +164,7 @@ export function Simulation() {
       }
 
       if (e.key.toLowerCase() === "r") {
-        setGrid(new Set())
+        setGrid(new SpatialGrid())
         setIsRunning(false)
       }
 
@@ -233,9 +180,10 @@ export function Simulation() {
         // If we have selected cells, restore them to their original positions
         if (originalCellPositions.size > 0) {
           setGrid(prev => {
-            const newGrid = new Set(prev)
+            const newGrid = prev.copy()
             originalCellPositions.forEach(key => {
-              newGrid.add(key)
+              const [x, y] = key.split(',').map(Number)
+              newGrid.add(x, y)
             })
             return newGrid
           })
@@ -252,16 +200,16 @@ export function Simulation() {
         // Map 1->slow, 2->med, 3->fast, 4->turbo
         switch (e.key) {
           case "1":
-            setSpeed(1000)
+            setSpeedSlider(0)
             break
           case "2":
-            setSpeed(500)
+            setSpeedSlider(50)
             break
           case "3":
-            setSpeed(100)
+            setSpeedSlider(91)
             break
           case "4":
-            setSpeed(25)
+            setSpeedSlider(98)
             break
         }
       }
@@ -390,174 +338,34 @@ export function Simulation() {
   // Note: We don't automatically stop keyboard panning when keys are released
   // The cursor stays hidden until the mouse actually moves
 
-  const drawGrid = useCallback(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+  const blueprintCells = useMemo(() => {
+    const cells: Array<{ x: number; y: number; isBlueprint: boolean }> = []
 
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    const width = canvas.width
-    const height = canvas.height
-
-    ctx.clearRect(0, 0, width, height)
-
-    const cellSize = CELL_SIZE * zoom
-
-    const startX = Math.floor(-panX / cellSize)
-    const startY = Math.floor(-panY / cellSize)
-    const endX = Math.ceil((width - panX) / cellSize)
-    const endY = Math.ceil((height - panY) / cellSize)
-
-    // Draw grid lines only if showGrid is true
-    if (showGrid) {
-      ctx.strokeStyle = "rgba(100, 150, 255, 0.1)"
-      ctx.lineWidth = 1
-
-      for (let x = startX; x <= endX; x++) {
-        const screenX = x * cellSize + panX
-        ctx.beginPath()
-        ctx.moveTo(screenX, 0)
-        ctx.lineTo(screenX, height)
-        ctx.stroke()
-      }
-
-      for (let y = startY; y <= endY; y++) {
-        const screenY = y * cellSize + panY
-        ctx.beginPath()
-        ctx.moveTo(0, screenY)
-        ctx.lineTo(width, screenY)
-        ctx.stroke()
-      }
-    }
-
-    grid.forEach((key) => {
-      const [x, y] = key.split(",").map(Number)
-      const screenX = x * cellSize + panX
-      const screenY = y * cellSize + panY
-
-      if (screenX + cellSize < 0 || screenX > width || screenY + cellSize < 0 || screenY > height) {
-        return
-      }
-
-      // Special case for white (hue = 0 with 0% saturation)
-      const isWhite = hue === 0
-      const mainColor = isWhite ? `hsl(0, 0%, 90%)` : `hsl(${hue}, 70%, 60%)`
-      const glowColor = isWhite ? `hsla(0, 0%, 90%, 0.8)` : `hsla(${hue}, 70%, 60%, 0.8)`
-      const innerColor = isWhite ? `hsl(0, 0%, 95%)` : `hsl(${hue}, 60%, 80%)`
-
-      ctx.shadowBlur = 15
-      ctx.shadowColor = glowColor
-
-      ctx.fillStyle = mainColor
-      ctx.fillRect(screenX + 2, screenY + 2, cellSize - 4, cellSize - 4)
-
-      ctx.fillStyle = innerColor
-      ctx.fillRect(screenX + 4, screenY + 4, cellSize - 8, cellSize - 8)
-
-      ctx.shadowBlur = 0
-    })
-
-    // Draw crosshair when keyboard panning
-    if (isKeyboardPanning) {
-      const centerX = width / 2
-      const centerY = height / 2
-      const crosshairSize = 20
-
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.8)"
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      // Horizontal line
-      ctx.moveTo(centerX - crosshairSize, centerY)
-      ctx.lineTo(centerX + crosshairSize, centerY)
-      // Vertical line
-      ctx.moveTo(centerX, centerY - crosshairSize)
-      ctx.lineTo(centerX, centerY + crosshairSize)
-      ctx.stroke()
-    }
-
-    // Draw selection box when dragging
-    if (selectionBox && isDraggingSelection) {
-      const cellSize = CELL_SIZE * zoom
-      const minX = Math.min(selectionBox.startX, selectionBox.endX)
-      const maxX = Math.max(selectionBox.startX, selectionBox.endX)
-      const minY = Math.min(selectionBox.startY, selectionBox.endY)
-      const maxY = Math.max(selectionBox.startY, selectionBox.endY)
-
-      const screenX = minX * cellSize + panX
-      const screenY = minY * cellSize + panY
-      const boxWidth = (maxX - minX + 1) * cellSize
-      const boxHeight = (maxY - minY + 1) * cellSize
-
-      // Semi-transparent blue selection box
-      ctx.fillStyle = "rgba(100, 150, 255, 0.2)"
-      ctx.fillRect(screenX, screenY, boxWidth, boxHeight)
-
-      // Blue border
-      ctx.strokeStyle = "rgba(100, 150, 255, 0.8)"
-      ctx.lineWidth = 2
-      ctx.strokeRect(screenX, screenY, boxWidth, boxHeight)
-    }
-
-    // Draw temp preset preview (EXACTLY like preset preview)
     if (tempPreset.length > 0) {
       const cellSize = CELL_SIZE * zoom
       const gridX = Math.floor((mousePosition.x - panX) / cellSize)
       const gridY = Math.floor((mousePosition.y - panY) / cellSize)
 
-      // Draw preview cells (EXACTLY like preset preview)
       tempPreset.forEach((cell) => {
-        const screenX = (gridX + cell.x) * cellSize + panX
-        const screenY = (gridY + cell.y) * cellSize + panY
-
-        if (screenX + cellSize < 0 || screenX > width || screenY + cellSize < 0 || screenY > height) {
-          return
-        }
-
-        // Semi-transparent blue preview
-        ctx.fillStyle = "rgba(100, 150, 255, 0.4)"
-        ctx.fillRect(screenX + 2, screenY + 2, cellSize - 4, cellSize - 4)
-        
-        // Blue border
-        ctx.strokeStyle = "rgba(100, 150, 255, 0.8)"
-        ctx.lineWidth = 2
-        ctx.strokeRect(screenX + 2, screenY + 2, cellSize - 4, cellSize - 4)
+        cells.push({ x: gridX + cell.x, y: gridY + cell.y, isBlueprint: true })
       })
     }
 
-    // Draw preset preview when a preset is selected
     if (selectedPreset) {
-      const cells = templates[selectedPreset]
-      if (cells) {
+      const presetCells = templates[selectedPreset] || customPresets[selectedPreset]
+      if (presetCells) {
         const cellSize = CELL_SIZE * zoom
         const gridX = Math.floor((mousePosition.x - panX) / cellSize)
         const gridY = Math.floor((mousePosition.y - panY) / cellSize)
 
-        // Draw preview cells
-        cells.forEach((cell) => {
-          const screenX = (gridX + cell.x) * cellSize + panX
-          const screenY = (gridY + cell.y) * cellSize + panY
-
-          if (screenX + cellSize < 0 || screenX > width || screenY + cellSize < 0 || screenY > height) {
-            return
-          }
-
-          // Semi-transparent blue preview
-          ctx.fillStyle = "rgba(100, 150, 255, 0.4)"
-          ctx.fillRect(screenX + 2, screenY + 2, cellSize - 4, cellSize - 4)
-
-          // Border for preview
-          ctx.strokeStyle = "rgba(100, 150, 255, 0.8)"
-          ctx.lineWidth = 2
-          ctx.strokeRect(screenX + 2, screenY + 2, cellSize - 4, cellSize - 4)
+        presetCells.forEach((cell) => {
+          cells.push({ x: gridX + cell.x, y: gridY + cell.y, isBlueprint: true })
         })
       }
     }
-  }, [grid, panX, panY, zoom, hue, showGrid, isKeyboardPanning, selectedPreset, mousePosition, templates, selectionBox, isDraggingSelection, selectedCells, tempPreset, editMode, justCompletedSelection])
 
-  useEffect(() => {
-    drawGrid()
-  }, [drawGrid])
+    return cells
+  }, [tempPreset, selectedPreset, mousePosition, panX, panY, zoom, templates, customPresets])
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isDragging) return
@@ -583,9 +391,10 @@ export function Simulation() {
       if (tempPreset.length > 0) {
         // Restore selected cells to their original positions
         setGrid(prev => {
-          const newGrid = new Set(prev)
+          const newGrid = prev.copy()
           originalCellPositions.forEach(key => {
-            newGrid.add(key)
+            const [x, y] = key.split(',').map(Number)
+            newGrid.add(x, y)
           })
           return newGrid
         })
@@ -600,13 +409,13 @@ export function Simulation() {
     if (tempPreset.length > 0 && e.button === 0 && !isDraggingSelection && !justCompletedSelection) {
       // Place EXACTLY like a preset
       setGrid(prev => {
-        const newGrid = new Set(prev)
+        const newGrid = prev.copy()
         tempPreset.forEach(cell => {
-          newGrid.add(cellKey(gridX + cell.x, gridY + cell.y))
+          newGrid.add(gridX + cell.x, gridY + cell.y)
         })
         return newGrid
       })
-      
+
       // Clear temp preset (EXACTLY like clearing selectedPreset)
       setTempPreset([])
       setSelectedCells(new Set())
@@ -615,12 +424,12 @@ export function Simulation() {
 
     // If a preset is selected, place it at the clicked position
     if (selectedPreset && e.button === 0) {
-      const cells = templates[selectedPreset]
+      const cells = templates[selectedPreset] || customPresets[selectedPreset]
       if (cells) {
         setGrid((prev) => {
-          const newGrid = new Set(prev)
+          const newGrid = prev.copy()
           cells.forEach((cell) => {
-            newGrid.add(cellKey(gridX + cell.x, gridY + cell.y))
+            newGrid.add(gridX + cell.x, gridY + cell.y)
           })
           return newGrid
         })
@@ -631,13 +440,12 @@ export function Simulation() {
 
     // Normal cell toggle behavior (left-click only) - only in place mode
     if (e.button === 0 && editMode === "place") {
-      const key = cellKey(gridX, gridY)
       setGrid((prev) => {
-        const newGrid = new Set(prev)
-        if (newGrid.has(key)) {
-          newGrid.delete(key)
+        const newGrid = prev.copy()
+        if (newGrid.has(gridX, gridY)) {
+          newGrid.remove(gridX, gridY)
         } else {
-          newGrid.add(key)
+          newGrid.add(gridX, gridY)
         }
         return newGrid
       })
@@ -663,6 +471,39 @@ export function Simulation() {
       const gridX = Math.floor((mouseX - panX) / cellSize)
       const gridY = Math.floor((mouseY - panY) / cellSize)
 
+      // Check if clicking on resize handle
+      if (selectionBox) {
+        const maxX = Math.max(selectionBox.startX, selectionBox.endX)
+        const maxY = Math.max(selectionBox.startY, selectionBox.endY)
+        const handleX = maxX + 0.5
+        const handleY = maxY + 0.5
+        const handleScreenX = handleX * cellSize + panX
+        const handleScreenY = handleY * cellSize + panY
+        const distance = Math.sqrt((mouseX - handleScreenX) ** 2 + (mouseY - handleScreenY) ** 2)
+
+        if (distance <= cellSize / 2) {
+          setIsDraggingHandle(true)
+          return
+        }
+      }
+
+      // Check if clicking inside existing selection box for dragging
+      if (selectionBox) {
+        const minX = Math.min(selectionBox.startX, selectionBox.endX)
+        const maxX = Math.max(selectionBox.startX, selectionBox.endX)
+        const minY = Math.min(selectionBox.startY, selectionBox.endY)
+        const maxY = Math.max(selectionBox.startY, selectionBox.endY)
+
+        if (gridX >= minX && gridX <= maxX && gridY >= minY && gridY <= maxY) {
+          setIsMovingSelection(true)
+          setSelectionDragStart({ x: mouseX, y: mouseY })
+          setSelectionPosition({ x: gridX, y: gridY })
+          setSelectionOffset({ x: 0, y: 0 })
+          return
+        }
+      }
+
+      // Start new selection
       setSelectionBox({ startX: gridX, startY: gridY, endX: gridX, endY: gridY })
       setIsDraggingSelection(true)
       return
@@ -696,6 +537,17 @@ export function Simulation() {
       return
     }
 
+    // Handle selection moving
+    if (isMovingSelection && selectionDragStart && selectionPosition) {
+      const cellSize = CELL_SIZE * zoom
+      const dx = mouseX - selectionDragStart.x
+      const dy = mouseY - selectionDragStart.y
+      const cellDx = Math.round(dx / cellSize)
+      const cellDy = Math.round(dy / cellSize)
+      setSelectionOffset({ x: cellDx, y: cellDy })
+      return
+    }
+
     // Update mouse position for preset preview
     if (selectedPreset) {
       setMousePosition({ x: mouseX, y: mouseY })
@@ -711,8 +563,7 @@ export function Simulation() {
       const gridX = Math.floor((mouseX - panX) / cellSize)
       const gridY = Math.floor((mouseY - panY) / cellSize)
 
-      const key = cellKey(gridX, gridY)
-      setCursorOnCell(grid.has(key))
+      setCursorOnCell(grid.has(gridX, gridY))
       return
     }
 
@@ -729,6 +580,26 @@ export function Simulation() {
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
     // Prevent right-click from triggering panning
     if (e.button === 2) {
+      return
+    }
+
+    // Handle selection moving completion
+    if (isMovingSelection && selectionOffset && selectionBox) {
+      // Apply the offset to the temp preset
+      const offsetX = selectionOffset.x
+      const offsetY = selectionOffset.y
+
+      if (offsetX !== 0 || offsetY !== 0) {
+        const newTempPreset = tempPreset.map(cell => ({
+          x: cell.x + offsetX,
+          y: cell.y + offsetY
+        }))
+        setTempPreset(newTempPreset)
+      }
+
+      setIsMovingSelection(false)
+      setSelectionDragStart(null)
+      setSelectionOffset({ x: 0, y: 0 })
       return
     }
 
@@ -756,9 +627,8 @@ export function Simulation() {
 
       for (let x = minX; x <= maxX; x++) {
         for (let y = minY; y <= maxY; y++) {
-          const key = cellKey(x, y)
-          if (grid.has(key)) {
-            cells.add(key)
+          if (grid.has(x, y)) {
+            cells.add(cellKey(x, y))
           }
         }
       }
@@ -785,9 +655,10 @@ export function Simulation() {
         
         // Remove cells from grid
         setGrid(prev => {
-          const newGrid = new Set(prev)
+          const newGrid = prev.copy()
           cells.forEach(key => {
-            newGrid.delete(key)
+            const [x, y] = key.split(',').map(Number)
+            newGrid.remove(x, y)
           })
           return newGrid
         })
@@ -795,15 +666,22 @@ export function Simulation() {
 
       setSelectedCells(cells)
       setOriginalCellPositions(cells) // Store original positions for restoration
-      setSelectionBox(null)
+      setSelectionBox(finalBox) // Keep selection box visible
       setIsDraggingSelection(false)
       setJustCompletedSelection(true)
-      
+
+      // Only reopen modal if selecting for export
+      if (isSelectingForExport) {
+        setShowImportExport(true)
+        setIsSelectingForExport(false)
+      }
+
       // Switch to place mode after a tiny delay
       setTimeout(() => {
         setEditMode("place")
+        setSelectionBox(null)
       }, 1)
-      
+
       // Clear the flag after a short delay
       setTimeout(() => {
         setJustCompletedSelection(false)
@@ -852,8 +730,8 @@ export function Simulation() {
       console.warn(`Template "${template}" not found`)
       return
     }
-    
-    const newGrid = new Set<string>()
+
+    const newGrid = new SpatialGrid()
 
     const canvas = canvasRef.current
     if (!canvas) return
@@ -863,17 +741,34 @@ export function Simulation() {
     const centerY = Math.floor((canvas.height / 2 - panY) / cellSize)
 
     cells.forEach((cell) => {
-      newGrid.add(cellKey(centerX + cell.x, centerY + cell.y))
+      newGrid.add(centerX + cell.x, centerY + cell.y)
     })
     setGrid(newGrid)
   }
 
   const handleReset = () => {
-    setGrid(new Set())
+    setGrid(new SpatialGrid())
     setIsRunning(false)
   }
 
-  const [showPresets, setShowPresets] = useState(false)
+  const handleExportComplete = () => {
+    setTempPreset([])
+    setSelectedCells(new Set())
+    setOriginalCellPositions(new Set())
+    setSelectionBox(null)
+    setEditMode("place")
+  }
+
+  const handleImportComplete = (presets: Record<string, Array<{ x: number; y: number }>>) => {
+    setCustomPresets(prev => ({ ...prev, ...presets }))
+  }
+
+  const handleStartExport = () => {
+    setEditMode("select")
+    setIsSelectingForExport(true)
+  }
+
+  const [showPresets, setShowPresets] = useState(false);
 
   return (
     <main className="relative min-h-screen bg-background overflow-hidden">
@@ -905,13 +800,13 @@ export function Simulation() {
                 }}
                 className="w-full h-2 rounded-lg appearance-none cursor-pointer"
                 style={{
-                  background: `linear-gradient(to right, 
-                    hsl(0, 70%, 60%), 
-                    hsl(60, 70%, 60%), 
-                    hsl(120, 70%, 60%), 
-                    hsl(180, 70%, 60%), 
-                    hsl(240, 70%, 60%), 
-                    hsl(300, 70%, 60%), 
+                  background: `linear-gradient(to right,
+                    hsl(0, 70%, 60%),
+                    hsl(60, 70%, 60%),
+                    hsl(120, 70%, 60%),
+                    hsl(180, 70%, 60%),
+                    hsl(240, 70%, 60%),
+                    hsl(300, 70%, 60%),
                     hsl(360, 70%, 60%))`,
                 }}
               />
@@ -970,15 +865,15 @@ export function Simulation() {
                   style={{ background: "hsl(180, 70%, 60%)" }}
                   title="Cyan"
                 />
-                 <button
-                   onClick={() => {
-                     setColorCycle(false)
-                     setHue(0)
-                   }}
-                   className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
-                   style={{ background: "hsl(0, 0%, 100%)" }}
-                   title="White"
-                 />
+                <button
+                  onClick={() => {
+                    setColorCycle(false)
+                    setHue(360)
+                  }}
+                  className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
+                  style={{ background: "hsl(0, 0%, 90%)" }}
+                  title="White"
+                />
                 <button
                   onClick={() => setColorCycle((c) => !c)}
                   className={`w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform flex items-center justify-center ${colorCycle ? "ring-2 ring-offset-1 ring-pink-400" : ""}`}
@@ -989,10 +884,10 @@ export function Simulation() {
                   </svg>
                 </button>
               </div>
-            </div>
-          )}
         </div>
-        
+      )}
+        </div>
+
         <Button
           onClick={() => setShowGrid(!showGrid)}
           size="sm"
@@ -1118,91 +1013,32 @@ export function Simulation() {
         >
           {isRunning ? <Pause className="h-5 w-5 md:h-6 md:w-6" /> : <Play className="h-5 w-5 md:h-6 md:w-6" />}
         </Button>
-        {/* desktop-only vertical speed buttons under the controls */}
-        <div className="hidden md:flex flex-col gap-2 mt-2">
-          <Button
-            onClick={() => setSpeed(1000)}
-            size="sm"
-            variant={speed === 1000 ? "default" : "outline"}
-            className={`glass-card border-electric-blue/50 cursor-pointer ${speed === 1000 ? "button-selected" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Slow
-          </Button>
-          <Button
-            onClick={() => setSpeed(500)}
-            size="sm"
-            variant={speed === 500 ? "default" : "outline"}
-            className={`glass-card border-electric-blue/50 cursor-pointer ${speed === 500 ? "button-selected" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Med
-          </Button>
-          <Button
-            onClick={() => setSpeed(100)}
-            size="sm"
-            variant={speed === 100 ? "default" : "outline"}
-            className={`glass-card border-electric-blue/50 cursor-pointer ${speed === 100 ? "button-selected" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Fast
-          </Button>
-          <Button
-            onClick={() => setSpeed(25)}
-            size="sm"
-            variant={speed === 25 ? "default" : "outline"}
-            className={`glass-card border-pink-500/70 hover:border-pink-500 cursor-pointer ${speed === 25 ? "button-selected turbo-button" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Turbo
-          </Button>
+        {/* desktop-only vertical speed slider */}
+        <div className="hidden md:flex flex-col gap-2 mt-2 items-center">
+          <Slider
+            value={[speedSlider]}
+            onValueChange={(value) => setSpeedSlider(value[0])}
+            max={100}
+            min={0}
+            step={1}
+            orientation="vertical"
+            className="h-32 w-4 cursor-pointer"
+          />
         </div>
       </div>
 
-  <div className="absolute bottom-28 left-1/2 -translate-x-1/2 md:bottom-6 md:left-6 md:-translate-x-0 z-10 flex flex-col items-center gap-2 md:flex-row md:gap-2">
-        {/* speed buttons row (mobile) - centers under presets */}
-        <div className="flex gap-2 mt-2 md:hidden">
-          <Button
-            onClick={() => setSpeed(1000)}
-            size="sm"
-            variant={speed === 1000 ? "default" : "outline"}
-            className={`glass-card border-electric-blue/50 cursor-pointer ${speed === 1000 ? "button-selected" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Slow
-          </Button>
-          <Button
-            onClick={() => setSpeed(500)}
-            size="sm"
-            variant={speed === 500 ? "default" : "outline"}
-            className={`glass-card border-electric-blue/50 cursor-pointer ${speed === 500 ? "button-selected" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Med
-          </Button>
-          <Button
-            onClick={() => setSpeed(100)}
-            size="sm"
-            variant={speed === 100 ? "default" : "outline"}
-            className={`glass-card border-electric-blue/50 cursor-pointer ${speed === 100 ? "button-selected" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Fast
-          </Button>
-          <Button
-            onClick={() => setSpeed(25)}
-            size="sm"
-            variant={speed === 25 ? "default" : "outline"}
-            className={`glass-card border-pink-500/70 hover:border-pink-500 cursor-pointer ${speed === 25 ? "button-selected turbo-button" : ""}`}
-          >
-            <Zap className="h-4 w-4 mr-1" />
-            Turbo
-          </Button>
-        </div>
-      </div>
 
-      <canvas
-        ref={canvasRef}
+
+      <WebGLRenderer
+        cells={grid.getAllCells()}
+        blueprintCells={blueprintCells}
+        selectionBox={selectionBox}
+        selectedCells={selectedCells}
+        panX={panX}
+        panY={panY}
+        zoom={zoom}
+        hue={hue}
+        showGrid={showGrid}
         width={typeof window !== "undefined" ? window.innerWidth : 1920}
         height={typeof window !== "undefined" ? window.innerHeight : 1080}
         onClick={handleCanvasClick}
@@ -1212,44 +1048,127 @@ export function Simulation() {
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
         onContextMenu={(e) => e.preventDefault()}
+        canvasRef={canvasRef}
         className={`w-full h-full ${isKeyboardPanning ? "cursor-none" : cursorOnCell ? "cursor-pointer" : "cursor-crosshair"}`}
+        isKeyboardPanning={isKeyboardPanning}
+        cursorOnCell={cursorOnCell}
       />
-      {/* Presets dropdown (bottom-center) - opens upward */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center">
-        <div className="relative">
+
+      {isKeyboardPanning && (
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-50 cursor-none">
+          <div className="relative w-8 h-8">
+            <div className="absolute top-1/2 left-0 w-full h-px bg-white/70 transform -translate-y-1/2"></div>
+            <div className="absolute left-1/2 top-0 w-px h-full bg-white/70 transform -translate-x-1/2"></div>
+          </div>
+        </div>
+      )}
+      {/* Presets and Import/Export buttons (bottom-center) - opens upward */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2">
+        <div className="flex gap-2">
           <Button
-            onClick={() => setShowPresets((s) => !s)}
+            onClick={() => setShowImportExport(true)}
             size="sm"
             variant="outline"
-            className="glass-card border-electric-blue/50 hover:border-electric-blue cursor-pointer px-8 py-3"
-            style={{
-              clipPath: 'polygon(15% 0%, 85% 0%, 100% 100%, 0% 100%)',
-              borderRadius: '8px 8px 0 0'
-            }}
+            className="glass-card border-electric-blue/50 hover:border-electric-blue cursor-pointer"
           >
-            Presets
+            <Download className="h-4 w-4 mr-2" />
+            Import/Export
           </Button>
+          <div className="relative">
+            <Button
+              onClick={() => setShowPresets((s) => !s)}
+              size="sm"
+              variant="outline"
+              className="glass-card border-electric-blue/50 hover:border-electric-blue cursor-pointer px-8 py-3"
+              style={{
+                clipPath: 'polygon(15% 0%, 85% 0%, 100% 100%, 0% 100%)',
+                borderRadius: '8px 8px 0 0'
+              }}
+            >
+              Presets
+            </Button>
 
-          {showPresets && (
-            <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 glass-card border border-electric-blue/50 rounded-lg p-4 w-[90vw] md:w-96 max-w-md origin-bottom">
-              <div className="grid grid-cols-4 gap-2">
-                {Object.keys(templates).map((templateName) => (
-                  <button 
-                    key={templateName}
-                    onClick={() => { 
-                      setSelectedPreset(templateName);
-                      setShowPresets(false); 
-                    }} 
-                    className="p-2 rounded-md bg-transparent border-2 border-white/10 hover:border-violet/50 capitalize text-sm transition-all duration-200 hover:bg-white/5"
+            {showPresets && (
+              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 glass-card border border-electric-blue/50 rounded-lg p-4 w-[90vw] md:w-96 max-w-md origin-bottom">
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    onClick={() => setPresetTab("built-in")}
+                    size="sm"
+                    variant={presetTab === "built-in" ? "default" : "outline"}
+                    className={`flex-1 ${presetTab === "built-in" ? "button-selected" : ""}`}
                   >
-                    {templateName}
-                  </button>
-                ))}
+                    Built-in
+                  </Button>
+                  <Button
+                    onClick={() => setPresetTab("custom")}
+                    size="sm"
+                    variant={presetTab === "custom" ? "default" : "outline"}
+                    className={`flex-1 ${presetTab === "custom" ? "button-selected" : ""}`}
+                  >
+                    Custom
+                  </Button>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {presetTab === "built-in" ? (
+                    Object.keys(templates).map((templateName) => (
+                      <button
+                        key={templateName}
+                        onClick={() => {
+                          setSelectedPreset(templateName);
+                          setShowPresets(false);
+                        }}
+                        className="p-2 rounded-md bg-transparent border-2 border-white/10 hover:border-violet/50 capitalize text-sm transition-all duration-200 hover:bg-white/5"
+                      >
+                        {templateName}
+                      </button>
+                    ))
+                  ) : (
+                    <>
+                      {Object.keys(customPresets).map((presetName) => (
+                        <button
+                          key={presetName}
+                          onClick={() => {
+                            setSelectedPreset(presetName);
+                            setShowPresets(false);
+                          }}
+                          className="p-2 rounded-md bg-transparent border-2 border-white/10 hover:border-violet/50 capitalize text-sm transition-all duration-200 hover:bg-white/5"
+                        >
+                          {presetName}
+                        </button>
+                      ))}
+                      {tempPreset.length > 0 && (
+                        <button
+                          onClick={() => {
+                            const name = prompt("Enter preset name:")
+                            if (name && name.trim()) {
+                              setCustomPresets(prev => ({ ...prev, [name.trim()]: tempPreset }))
+                              setTempPreset([])
+                              setSelectedCells(new Set())
+                              setOriginalCellPositions(new Set())
+                            }
+                          }}
+                          className="p-2 rounded-md bg-green-600/20 border-2 border-green-500 hover:border-green-400 text-green-400 text-sm transition-all duration-200 hover:bg-green-600/30"
+                        >
+                          Save Selection
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
+
+      <ImportExportModal
+        isVisible={showImportExport}
+        onClose={() => setShowImportExport(false)}
+        tempPreset={tempPreset}
+        onExportComplete={handleExportComplete}
+        onImportComplete={handleImportComplete}
+        onStartExport={handleStartExport}
+      />
     </main>
-  )
+  );
 }
