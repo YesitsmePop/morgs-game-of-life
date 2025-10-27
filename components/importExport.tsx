@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Download, Upload } from "lucide-react"
+import { loadPresetsFromFileObject, exportPresetToText } from "@/lib/preset-parser"
 
 interface ImportExportModalProps {
   isVisible: boolean
@@ -28,14 +29,20 @@ export function ImportExportModal({
   const [isSelectingMode, setIsSelectingMode] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Debug logging
+  console.log('ImportExportModal render:', { isVisible, tempPresetLength: tempPreset.length })
+
+  if (isVisible) {
+    console.log('=== MODAL DEBUG ===')
+    console.log('tempPreset received:', tempPreset)
+    console.log('tempPreset length:', tempPreset.length)
+    console.log('Should show export button:', tempPreset.length > 0)
+  }
+
   const handleExport = () => {
     if (!exportName.trim() || tempPreset.length === 0) return
 
-    // Generate .txt content like presets.txt
-    let content = `[${exportName.trim()}]\n`
-    tempPreset.forEach(cell => {
-      content += `${cell.x},${cell.y}\n`
-    })
+    const content = exportPresetToText(exportName.trim(), tempPreset)
 
     const blob = new Blob([content], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
@@ -58,34 +65,7 @@ export function ImportExportModal({
     if (!file) return
 
     try {
-      const text = await file.text()
-      const lines = text.split('\n')
-      const presets: Record<string, Array<{ x: number; y: number }>> = {}
-      let currentPreset = ''
-
-      for (const line of lines) {
-        const trimmedLine = line.trim()
-
-        // Skip empty lines and comments
-        if (!trimmedLine || trimmedLine.startsWith('#')) {
-          continue
-        }
-
-        // Check if this is a preset header
-        if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
-          currentPreset = trimmedLine.slice(1, -1)
-          presets[currentPreset] = []
-          continue
-        }
-
-        // Parse coordinates
-        if (currentPreset && trimmedLine.includes(',')) {
-          const [x, y] = trimmedLine.split(',').map(Number)
-          if (!isNaN(x) && !isNaN(y)) {
-            presets[currentPreset].push({ x, y })
-          }
-        }
-      }
+      const presets = await loadPresetsFromFileObject(file)
 
       if (Object.keys(presets).length > 0) {
         onImportComplete(presets)

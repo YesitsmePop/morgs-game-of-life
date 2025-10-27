@@ -36,11 +36,18 @@
 - [ ] Test WebGL rendering, performance, import/export, extended zoom
 
 ## Selection Tool Implementation
-- [ ] Modify WebGL renderer to render persistent selection box as filled blue transparent rectangle
-- [ ] Add handle circle rendering in WebGL renderer
-- [ ] Update simulation selection logic to keep selectionBox after drag completion
-- [ ] Add handle detection and dragging logic in simulation
-- [ ] Implement movement of selected cells when dragging handle
-- [ ] Add deselection on click outside selection area
-- [ ] Remove magenta selected cells rendering
-- [ ] Test the new selection functionality
+- [x] Modify WebGL renderer to render persistent selection box as filled blue transparent rectangle
+- [x] Add handle circle rendering in WebGL renderer (no knobs, only floating buttons)
+- [x] Update simulation selection logic to keep selectionBox after drag completion
+- [x] Add handle detection and dragging logic in simulation
+- [x] Implement movement of selected cells when dragging handle (click anywhere in selection area)
+- [x] Add deselection on click outside selection area
+- [x] Remove blue knob and allow dragging by clicking anywhere in selection area
+- [x] Replace yellow/green knobs with floating mirror buttons above selection
+- [x] Replace red rotate knob with floating rotate button
+- [x] Improve selection cropping to use actual cell bounds instead of drag box
+- [x] Add purple duplicate button to create copy of selection to the right
+- [x] Test the new selection functionality
+- [x] Add rotation functionality (90-degree increments)
+- [x] Add mirroring functionality (horizontal and vertical)
+- [x] Apply transformations when placing cells back to grid

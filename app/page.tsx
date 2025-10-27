@@ -20,8 +20,8 @@ export default function Home() {
 
       <div className="relative z-10 flex flex-col items-center gap-12 px-4 animate-fade-in">
         {/* Main title */}
-  <h1 className="font-sans text-4xl md:text-8xl font-bold text-center text-balance tracking-tight">
-          <span className="bg-gradient-to-r from-electric-blue via-violet to-cyan-green bg-clip-text text-transparent">
+  <h1 className="font-[family-name:var(--font-playfair)] text-4xl md:text-8xl font-bold text-center text-balance tracking-tight">
+          <span className="text-black">
             MORG&apos;S
           </span>
           <br />
@@ -29,7 +29,7 @@ export default function Home() {
         </h1>
 
   {/* Credit line */}
-  <p className="mt-2 text-sm text-muted-foreground opacity-80">Developed by Morgan McDonald - Inspired by Conway's Game of Life</p>
+  <p className="mt-2 text-sm text-black opacity-90">Developed by Morgan McDonald - Inspired by Conway's Game of Life</p>
 
         {/* Begin button */}
         <Button

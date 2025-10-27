@@ -16,8 +16,8 @@ export function CursorGlow() {
       setIsVisible(false)
     }
 
-    window.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseleave", handleMouseLeave)
+    window.addEventListener("mousemove", handleMouseMove, { passive: true })
+    document.addEventListener("mouseleave", handleMouseLeave, { passive: true })
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove)

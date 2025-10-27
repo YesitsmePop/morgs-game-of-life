@@ -122,4 +122,40 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Ensure sliders respond immediately without transitions */
+  [role="slider"] {
+    transition: none !important;
+  }
+
+  /* Prevent slider thumb jumping */
+  [role="slider"]::-webkit-slider-thumb {
+    transition: none !important;
+  }
+
+  [role="slider"]::-moz-range-thumb {
+    transition: none !important;
+  }
+
+  /* Prevent slider track transitions */
+  [role="slider"]::-webkit-slider-track {
+    transition: none !important;
+  }
+
+  [role="slider"]::-moz-range-track {
+    transition: none !important;
+  }
+
+  /* Ensure immediate visual feedback */
+  [role="slider"]:focus {
+    outline: none;
+  }
+
+  [role="slider"]::-webkit-slider-thumb:hover {
+    transform: none !important;
+  }
+
+  [role="slider"]::-moz-range-thumb:hover {
+    transform: none !important;
+  }
 }

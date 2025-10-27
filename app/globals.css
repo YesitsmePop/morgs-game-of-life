@@ -1,86 +1,52 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* Dark theme for electric blue aesthetic with violet and green accents */
 :root {
-  --background: oklch(0.08 0.02 240);
-  --foreground: oklch(0.98 0.01 240);
-  --card: oklch(0.12 0.02 240 / 0.6);
-  --card-foreground: oklch(0.98 0.01 240);
-  --popover: oklch(0.12 0.02 240);
-  --popover-foreground: oklch(0.98 0.01 240);
-  --primary: oklch(0.6 0.22 240);
-  --primary-foreground: oklch(0.98 0.01 240);
-  --secondary: oklch(0.18 0.02 240);
-  --secondary-foreground: oklch(0.98 0.01 240);
-  --muted: oklch(0.18 0.02 240);
-  --muted-foreground: oklch(0.6 0.02 240);
-  --accent: oklch(0.65 0.25 280);
-  --accent-foreground: oklch(0.98 0.01 240);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.98 0.01 240);
-  --border: oklch(0.18 0.02 240);
-  --input: oklch(0.18 0.02 240);
-  --ring: oklch(0.6 0.22 240);
-  --electric-blue: oklch(0.6 0.22 240);
-  --violet: oklch(0.65 0.25 280);
-  --cyan-green: oklch(0.7 0.18 180);
+  --background: 240 2% 8%;
+  --foreground: 240 1% 98%;
+  --card: 240 2% 12%;
+  --card-foreground: 240 1% 98%;
+  --popover: 240 2% 12%;
+  --popover-foreground: 240 1% 98%;
+  --primary: 240 22% 60%;
+  --primary-foreground: 240 1% 98%;
+  --secondary: 240 2% 18%;
+  --secondary-foreground: 240 1% 98%;
+  --muted: 240 2% 18%;
+  --muted-foreground: 240 2% 60%;
+  --accent: 280 25% 65%;
+  --accent-foreground: 240 1% 98%;
+  --destructive: 26 14% 40%;
+  --destructive-foreground: 240 1% 98%;
+  --border: 240 2% 18%;
+  --input: 240 2% 18%;
+  --ring: 240 22% 60%;
+  --electric-blue: 240 22% 60%;
+  --violet: 280 25% 65%;
+  --cyan-green: 180 18% 70%;
   --radius: 1rem;
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --sidebar: 0 0% 21%;
+  --sidebar-foreground: 0 0% 99%;
+  --sidebar-primary: 264 24% 49%;
+  --sidebar-primary-foreground: 0 0% 99%;
+  --sidebar-accent: 0 0% 27%;
+  --sidebar-accent-foreground: 0 0% 99%;
+  --sidebar-border: 0 0% 27%;
+  --sidebar-ring: 0 0% 44%;
 }
 
-@theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-playfair);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-electric-blue: var(--electric-blue);
-  --color-violet: var(--violet);
-  --color-cyan-green: var(--cyan-green);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-}
+/* Custom theme variables - these will be picked up by Tailwind config */
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: hsl(var(--border));
+    outline-color: hsl(var(--ring) / 0.5);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 }
 
@@ -122,7 +88,7 @@
   left: 0;
   right: 0;
   height: 50%;
-  background: linear-gradient(to top, rgba(14, 165, 233, 0.4), transparent);
+  background: linear-gradient(to top, rgba(147, 51, 234, 0.4), transparent);
   pointer-events: none;
   z-index: 1;
 }
@@ -194,11 +160,11 @@
 .animated-gradient {
   background: linear-gradient(
     135deg,
-    oklch(0.08 0.02 240),
-    oklch(0.15 0.15 240),
-    oklch(0.12 0.18 280),
-    oklch(0.1 0.12 180),
-    oklch(0.08 0.02 240)
+    oklch(0.85 0.08 280),
+    oklch(0.75 0.12 290),
+    oklch(0.8 0.05 0),
+    oklch(0.7 0.15 240),
+    oklch(0.85 0.08 280)
   );
   background-size: 400% 400%;
   animation: gradient-shift 15s ease infinite;
