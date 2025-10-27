@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Download, Upload } from "lucide-react"
@@ -15,6 +15,7 @@ interface ImportExportModalProps {
   onExportComplete: () => void
   onImportComplete: (presets: Record<string, Array<{ x: number; y: number }>>) => void
   onStartExport: () => void
+  showToast: (message: string, type?: 'success' | 'error') => void
 }
 
 export function ImportExportModal({
@@ -23,21 +24,12 @@ export function ImportExportModal({
   tempPreset,
   onExportComplete,
   onImportComplete,
-  onStartExport
+  onStartExport,
+  showToast
 }: ImportExportModalProps) {
   const [exportName, setExportName] = useState("")
   const [isSelectingMode, setIsSelectingMode] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Debug logging
-  console.log('ImportExportModal render:', { isVisible, tempPresetLength: tempPreset.length })
-
-  if (isVisible) {
-    console.log('=== MODAL DEBUG ===')
-    console.log('tempPreset received:', tempPreset)
-    console.log('tempPreset length:', tempPreset.length)
-    console.log('Should show export button:', tempPreset.length > 0)
-  }
 
   const handleExport = () => {
     if (!exportName.trim() || tempPreset.length === 0) return
@@ -71,10 +63,10 @@ export function ImportExportModal({
         onImportComplete(presets)
         onClose()
       } else {
-        alert("No valid patterns found in the file")
+        showToast("No valid patterns found in the file", "error")
       }
     } catch (error) {
-      alert("Failed to read file")
+      showToast("Failed to read file", "error")
     }
 
     // Reset file input
@@ -92,12 +84,15 @@ export function ImportExportModal({
   if (!isVisible) return null
 
   return (
-    <Dialog open={isVisible} onOpenChange={handleClose}>
+    <Dialog open={isVisible} onOpenChange={undefined}>
       <DialogContent className="glass-card border-electric-blue/50 max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-foreground text-center">
             Import / Export Patterns
           </DialogTitle>
+          <DialogDescription className="text-center text-muted-foreground">
+            Import patterns from files or export selected cells as custom presets.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -139,7 +134,11 @@ export function ImportExportModal({
             <div className="flex flex-col gap-2">
               {tempPreset.length === 0 ? (
                 <Button
-                  onClick={() => { setIsSelectingMode(true); onStartExport(); onClose(); }}
+                  onClick={() => {
+                    setIsSelectingMode(true);
+                    onStartExport();
+                    onClose();
+                  }}
                   className="glass-card border-violet/50 hover:border-violet"
                 >
                   Select Cells
@@ -155,7 +154,10 @@ export function ImportExportModal({
                     Export
                   </Button>
                   <Button
-                    onClick={() => { onExportComplete(); onClose(); }}
+                    onClick={() => {
+                      setIsSelectingMode(false);
+                      onClose();
+                    }}
                     variant="outline"
                     className="glass-card border-muted-foreground/50 hover:border-muted-foreground"
                   >

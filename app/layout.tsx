@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "A custom implementation of Conway's Game of Life",
   generator: "Morgan McDonald",
   icons: {
-    icon: "/icon.ico"
+    icon: "/icon.png"
   }
 }
 

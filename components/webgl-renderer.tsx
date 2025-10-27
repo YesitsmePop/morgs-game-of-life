@@ -12,6 +12,7 @@ interface CellData {
 interface WebGLRendererProps {
   cells: Set<string>
   blueprintCells?: Array<{ x: number; y: number; isBlueprint: boolean }>
+  brushPreviewCells?: Array<{ x: number; y: number; type: 'line' | 'rectangle' | 'circle' | 'fill' }>
   selectionBox?: { startX: number; startY: number; endX: number; endY: number } | null
   selectedCells?: Set<string>
   panX: number
@@ -49,6 +50,7 @@ import { cellKey } from "@/lib/cell-utils"
 export function WebGLRenderer({
   cells,
   blueprintCells = [],
+  brushPreviewCells = [],
   selectionBox,
   selectedCells = new Set(),
   panX,
@@ -178,9 +180,39 @@ export function WebGLRenderer({
       }
 
       void main() {
-        // Special handling for selection fill (hue = 240) - make it transparent
+        // Special handling for selection fill - make it transparent
         if (abs(v_hue - 240.0) < 0.1) {
-          outColor = vec4(0.3, 0.5, 0.8, 0.3); // Blue transparent fill
+          outColor = vec4(0.3, 0.5, 0.8, 0.3); // Blue transparent fill for regular selection
+          return;
+        }
+
+        // Special handling for export selection fill - purple
+        if (abs(v_hue - 30.0) < 0.1) {
+          outColor = vec4(0.6, 0.3, 0.8, 0.3); // Purple transparent fill for export selection
+          return;
+        }
+
+        // Special handling for brush preview colors - make them semi-transparent
+        if (abs(v_hue - 120.0) < 0.1) { // Green for line preview
+          outColor = vec4(0.0, 1.0, 0.0, 0.7); // Semi-transparent green
+          return;
+        }
+        if (abs(v_hue - 60.0) < 0.1) { // Yellow for rectangle preview
+          outColor = vec4(1.0, 1.0, 0.0, 0.7); // Semi-transparent yellow
+          return;
+        }
+        if (abs(v_hue - 300.0) < 0.1) { // Magenta for circle preview
+          outColor = vec4(1.0, 0.0, 1.0, 0.7); // Semi-transparent magenta
+          return;
+        }
+        if (abs(v_hue - 0.0) < 0.1) { // Red for fill preview
+          outColor = vec4(1.0, 0.0, 0.0, 0.7); // Semi-transparent red
+          return;
+        }
+
+        // Special case for persistent selection cells (cyan)
+        if (abs(v_hue - 180.0) < 0.1) {
+          outColor = vec4(0.0, 1.0, 1.0, 0.8); // Cyan for persistent selection
           return;
         }
 
@@ -340,6 +372,28 @@ export function WebGLRenderer({
       }
     })
 
+    // Add brush preview cells with different colors based on brush type
+    brushPreviewCells.forEach(cell => {
+      if (cell.x >= startX && cell.x <= endX && cell.y >= startY && cell.y <= endY) {
+        let previewHue = 120 // Default green for preview
+        switch (cell.type) {
+          case 'line':
+            previewHue = 120 // Green for lines
+            break
+          case 'rectangle':
+            previewHue = 60  // Yellow for rectangles
+            break
+          case 'circle':
+            previewHue = 300 // Magenta for circles
+            break
+          case 'fill':
+            previewHue = 0   // Red for fill
+            break
+        }
+        cellData.push({ x: cell.x, y: cell.y, hue: previewHue })
+      }
+    })
+
     // Add regular cells efficiently
     cells.forEach(cellKey => {
       const [x, y] = cellKey.split(',').map(Number)
@@ -400,7 +454,18 @@ export function WebGLRenderer({
         Math.abs(selectionBox.startY),
         Math.abs(selectionBox.endX),
         Math.abs(selectionBox.endY)
-      ) > 1000
+      ) > 100
+
+      console.log('=== SELECTION BOX DEBUG ===')
+      console.log('Selection box coordinates:', selectionBox)
+      console.log('Max coordinate value:', Math.max(
+        Math.abs(selectionBox.startX),
+        Math.abs(selectionBox.startY),
+        Math.abs(selectionBox.endX),
+        Math.abs(selectionBox.endY)
+      ))
+      console.log('Is pixel coordinates (threshold 100):', isPixelCoordinates)
+      console.log('isSelectingForExport:', isSelectingForExport)
 
       if (isPixelCoordinates) {
         // Pixel coordinates - convert to grid coordinates for rendering
@@ -427,20 +492,38 @@ export function WebGLRenderer({
         // Use different color for export selection (orange) vs regular selection (blue)
         const selectionHue = isSelectingForExport ? 30 : 240
 
+        console.log('=== EXPORT SELECTION DEBUG ===')
+        console.log('Viewport bounds:', { startX, startY, endX, endY })
+        console.log('Grid selection bounds:', { minX, maxX, minY, maxY })
+        console.log('Clipped bounds:', { selStartX, selStartY, selEndX, selEndY })
+        console.log('Selection hue:', selectionHue)
+        console.log('Cells in selection area:', (selEndX - selStartX + 1) * (selEndY - selStartY + 1))
+
+        // Always render selection, even if bounds seem invalid
         for (let x = selStartX; x <= selEndX; x++) {
           for (let y = selStartY; y <= selEndY; y++) {
             const cellKey = `${x},${y}`
-            if (!cells.has(cellKey) && !selectedCells.has(cellKey)) {
-              cellData.push({ x, y, hue: selectionHue })
-            }
+            // Show selection highlight for ALL cells in the selection area (overlay effect)
+            cellData.push({ x, y, hue: selectionHue })
           }
+        }
+
+        // Fallback: if no cells were added (empty bounds), add at least the center cell
+        if (selStartX > selEndX || selStartY > selEndY) {
+          const centerX = Math.round((minX + maxX) / 2)
+          const centerY = Math.round((minY + maxY) / 2)
+          console.log('Adding fallback cell:', { centerX, centerY })
+          cellData.push({ x: centerX, y: centerY, hue: selectionHue })
         }
       } else {
         // Grid coordinates
+        console.log('=== GRID COORDINATES BRANCH ===')
         const minX = Math.min(selectionBox.startX, selectionBox.endX)
         const maxX = Math.max(selectionBox.startX, selectionBox.endX)
         const minY = Math.min(selectionBox.startY, selectionBox.endY)
         const maxY = Math.max(selectionBox.startY, selectionBox.endY)
+
+        console.log('Grid selection bounds:', { minX, maxX, minY, maxY })
 
         // Pre-calculate selection bounds
         const selStartX = Math.max(startX, minX)
@@ -448,20 +531,34 @@ export function WebGLRenderer({
         const selEndX = Math.min(endX, maxX)
         const selEndY = Math.min(endY, maxY)
 
+        // Use different color for export selection (orange) vs regular selection (blue)
+        const selectionHue = isSelectingForExport ? 30 : 240
+
+        console.log('Grid clipped bounds:', { selStartX, selStartY, selEndX, selEndY })
+        console.log('Grid selection hue:', selectionHue)
+
+        // Always render selection highlight for the calculated bounds
         for (let x = selStartX; x <= selEndX; x++) {
           for (let y = selStartY; y <= selEndY; y++) {
             const cellKey = `${x},${y}`
-            if (!cells.has(cellKey) && !selectedCells.has(cellKey)) {
-              cellData.push({ x, y, hue: 240 }) // Blue for regular selection fill
-            }
+            // Show selection highlight for ALL cells in the selection area (overlay effect)
+            cellData.push({ x, y, hue: selectionHue })
           }
+        }
+
+        // Fallback: if no cells were added (empty bounds), add at least the center cell
+        if (selStartX > selEndX || selStartY > selEndY) {
+          const centerX = Math.round((minX + maxX) / 2)
+          const centerY = Math.round((minY + maxY) / 2)
+          console.log('Adding grid fallback cell:', { centerX, centerY })
+          cellData.push({ x: centerX, y: centerY, hue: selectionHue })
         }
       }
     }
 
     cellDataRef.current = cellData
     lastCellsRef.current = cells
-  }, [cells, blueprintCells, selectionBox, selectedCells, panX, panY, zoom, hue, width, height, persistentSelection, isSelectingForExport])
+  }, [cells, blueprintCells, brushPreviewCells, selectionBox, selectedCells, panX, panY, zoom, hue, width, height, persistentSelection, isSelectingForExport, gridUpdateKey])
 
   const render = useCallback(() => {
     const gl = glRef.current
@@ -525,7 +622,7 @@ export function WebGLRenderer({
       renderGrid(gl, gridProgram, gridVao)
     }
 
-  }, [width, height, panX, panY, zoom, showGrid, cells, blueprintCells, selectionBox, selectedCells, hue, persistentSelection, isSelectingForExport])
+  }, [width, height, panX, panY, zoom, showGrid, cells, blueprintCells, brushPreviewCells, selectionBox, selectedCells, hue, persistentSelection, isSelectingForExport, gridUpdateKey])
 
   useEffect(() => {
     render()
@@ -583,7 +680,7 @@ export function WebGLRenderer({
 
     // Draw cached boundary lines
     renderBoundaries(gl, gridProgram, gridVao)
-  }, [panX, panY, zoom, width, height])
+  }, [panX, panY, zoom, width, height, gridUpdateKey])
 
   // Optimized boundary rendering with caching
   const renderBoundaries = useCallback((gl: WebGL2RenderingContext, gridProgram: WebGLProgram, gridVao: WebGLVertexArrayObject) => {
@@ -622,7 +719,7 @@ export function WebGLRenderer({
       gl.drawArrays(gl.LINES, 0, gridBounds.length / 2)
       gl.lineWidth(1) // Reset line width
     }
-  }, [panX, panY, zoom, width, height])
+  }, [panX, panY, zoom, width, height, gridUpdateKey])
 
   useEffect(() => {
     render()

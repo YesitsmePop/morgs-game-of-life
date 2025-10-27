@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
-import { Play, Pause, RotateCcw, Zap, ChevronDown, Palette, Grid3X3, Download, HelpCircle } from "lucide-react"
+import { Play, Pause, RotateCcw, Zap, ChevronDown, Palette, Grid3X3, Download, HelpCircle, Circle, Minus, Square, PaintBucket, Box, Type } from "lucide-react"
 import { QuadtreeGrid } from "@/lib/quadtree-grid"
 import { ImportExportModal } from "@/components/importExport"
 import { WebGLRenderer } from "@/components/webgl-renderer"
@@ -41,16 +41,25 @@ export function Simulation() {
   const [keyboardPanSpeed, setKeyboardPanSpeed] = useState(5)
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
-  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set())
   const [originalCellPositions, setOriginalCellPositions] = useState<Set<string>>(new Set())
   const [isDraggingHandle, setIsDraggingHandle] = useState(false)
   const [isDraggingSelection, setIsDraggingSelection] = useState(false)
   const [isMovingSelection, setIsMovingSelection] = useState(false)
+  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null)
   const [selectionOffset, setSelectionOffset] = useState({ x: 0, y: 0 })
   const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null)
-  const [editMode, setEditMode] = useState<"place" | "select">("place")
+  const [editMode, setEditMode] = useState<"move" | "place" | "select">("place")
+  const [brushMode, setBrushMode] = useState<"singular" | "line" | "rectangle" | "fill" | "circle">("singular")
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [brushPreview, setBrushPreview] = useState<{
+    type: 'line' | 'rectangle' | 'circle' | 'fill' | 'singular' | null
+    start: { x: number; y: number }
+    end: { x: number; y: number }
+    cells: Array<{ x: number; y: number }>
+    limitReached?: boolean
+  } | null>(null)
   const [tempPreset, setTempPreset] = useState<Array<{ x: number; y: number }>>([])
   const [justCompletedSelection, setJustCompletedSelection] = useState(false)
   const [showControls, setShowControls] = useState(false)
@@ -60,15 +69,193 @@ export function Simulation() {
   const [showFps, setShowFps] = useState(false)
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; type: 'success' | 'error' }>>([])
 
-  // Toast notification functions
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    const id = Date.now()
-    setToasts(prev => [...prev, { id, message, type }])
-    // Auto-remove after 3 seconds
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id))
-    }, 3000)
-  }
+  // Helper function to calculate preview cells for different brush types
+  const calculateBrushPreview = useCallback((start: { x: number; y: number }, end: { x: number; y: number }, type: 'line' | 'rectangle' | 'circle' | 'fill') => {
+    const cellsToAdd: Array<{ x: number; y: number }> = []
+    const cellsToRemove: Array<{ x: number; y: number }> = []
+
+    let limitReached = false
+
+    switch (type) {
+      case 'line': {
+        // Use Bresenham's line algorithm for perfect straight lines
+        const dx = Math.abs(end.x - start.x)
+        const dy = Math.abs(end.y - start.y)
+        const sx = start.x < end.x ? 1 : -1
+        const sy = start.y < end.y ? 1 : -1
+        let err = dx - dy
+
+        let x = start.x
+        let y = start.y
+
+        while (true) {
+          if (grid.has(x, y)) {
+            cellsToRemove.push({ x, y })
+          } else {
+            cellsToAdd.push({ x, y })
+          }
+
+          if (x === end.x && y === end.y) break
+
+          const e2 = 2 * err
+          if (e2 > -dy) {
+            err -= dy
+            x += sx
+          }
+          if (e2 < dx) {
+            err += dx
+            y += sy
+          }
+        }
+        break
+      }
+
+      case 'rectangle': {
+        // Rectangle brush: draw hollow rectangle outline
+        const minX = Math.min(start.x, end.x)
+        const maxX = Math.max(start.x, end.x)
+        const minY = Math.min(start.y, end.y)
+        const maxY = Math.max(start.y, end.y)
+
+        // Draw only the outline (perimeter)
+        for (let x = minX; x <= maxX; x++) {
+          // Top and bottom edges
+          if (grid.has(x, minY)) {
+            cellsToRemove.push({ x, y: minY })
+          } else {
+            cellsToAdd.push({ x, y: minY })
+          }
+
+          if (minY !== maxY) { // Only add bottom if height > 0
+            if (grid.has(x, maxY)) {
+              cellsToRemove.push({ x, y: maxY })
+            } else {
+              cellsToAdd.push({ x, y: maxY })
+            }
+          }
+        }
+
+        for (let y = minY + 1; y < maxY; y++) {
+          // Left and right edges (excluding corners which are already added)
+          if (grid.has(minX, y)) {
+            cellsToRemove.push({ x: minX, y })
+          } else {
+            cellsToAdd.push({ x: minX, y })
+          }
+
+          if (minX !== maxX) { // Only add right if width > 0
+            if (grid.has(maxX, y)) {
+              cellsToRemove.push({ x: maxX, y })
+            } else {
+              cellsToAdd.push({ x: maxX, y })
+            }
+          }
+        }
+        break
+      }
+
+      case 'circle': {
+        // Circle brush: draw hollow circle
+        const centerX = start.x
+        const centerY = start.y
+        const radius = Math.max(
+          Math.abs(end.x - centerX),
+          Math.abs(end.y - centerY)
+        )
+
+        // Draw circle using Bresenham's circle algorithm
+        let x = radius
+        let y = 0
+        let err = 0
+
+        while (x >= y) {
+          // Draw 8 points of the circle for each position
+          const points = [
+            { x: centerX + x, y: centerY + y },
+            { x: centerX + y, y: centerY + x },
+            { x: centerX - y, y: centerY + x },
+            { x: centerX - x, y: centerY + y },
+            { x: centerX - x, y: centerY - y },
+            { x: centerX - y, y: centerY - x },
+            { x: centerX + y, y: centerY - x },
+            { x: centerX + x, y: centerY - y }
+          ]
+
+          points.forEach(point => {
+            if (grid.has(point.x, point.y)) {
+              cellsToRemove.push(point)
+            } else {
+              cellsToAdd.push(point)
+            }
+          })
+
+          if (err <= 0) {
+            y += 1
+            err += 2 * y + 1
+          }
+          if (err > 0) {
+            x -= 1
+            err -= 2 * x + 1
+          }
+        }
+        break
+      }
+
+      case 'fill': {
+        // Fill brush: flood fill from start position (with cell limit)
+        const MAX_FILL_CELLS = 25000 // Cap on max cells that can be filled
+
+        // Simple flood fill starting from start position
+        const stack: Array<{ x: number; y: number }> = [start]
+        const visited = new Set<string>()
+        const startCellExists = grid.has(start.x, start.y)
+
+        let cellsProcessed = 0
+
+        while (stack.length > 0 && cellsProcessed < MAX_FILL_CELLS) {
+          const current = stack.pop()!
+          const key = `${current.x},${current.y}`
+
+          if (visited.has(key)) continue
+          visited.add(key)
+
+          const cellExists = grid.has(current.x, current.y)
+
+          // Only fill if this matches the starting cell state
+          if (cellExists === startCellExists) {
+            if (cellExists) {
+              cellsToRemove.push(current)
+            } else {
+              cellsToAdd.push(current)
+            }
+            cellsProcessed++
+
+            // Add neighbors to stack
+            const neighbors = [
+              { x: current.x + 1, y: current.y },
+              { x: current.x - 1, y: current.y },
+              { x: current.x, y: current.y + 1 },
+              { x: current.x, y: current.y - 1 }
+            ]
+
+            neighbors.forEach(neighbor => {
+              const neighborKey = `${neighbor.x},${neighbor.y}`
+              if (!visited.has(neighborKey)) {
+                stack.push(neighbor)
+              }
+            })
+          }
+        }
+
+        if (cellsProcessed >= MAX_FILL_CELLS) {
+          limitReached = true
+        }
+        break
+      }
+    }
+
+    return { cells: [...cellsToAdd, ...cellsToRemove], limitReached }
+  }, [grid])
 
   // Persistent selection state
   const [persistentSelection, setPersistentSelection] = useState<{
@@ -80,9 +267,11 @@ export function Simulation() {
   } | null>(null)
   const [isDraggingMoveKnob, setIsDraggingMoveKnob] = useState(false)
 
-  // Export selection state
-  const [isSelectingForExport, setIsSelectingForExport] = useState(false)
+  // Export selection state - separate from regular selection
+  const [exportCells, setExportCells] = useState<Array<{ x: number; y: number }>>([])
+  const [isExportMode, setIsExportMode] = useState(false)
   const [exportSelectionBox, setExportSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   // Grid update counter to force React re-renders
   const [gridUpdateCounter, setGridUpdateCounter] = useState(0)
@@ -233,7 +422,7 @@ export function Simulation() {
       if (pressedKeys.has('ArrowRight') || pressedKeys.has('KeyD')) newPanX -= keyboardPanSpeed
 
       // Handle +/- zoom with center pivot
-      if (pressedKeys.has('Equal')) {
+      if (pressedKeys.has('Equal') || pressedKeys.has('KeyX')) {
         const oldZoom = zoom
         newZoom = Math.min(MAX_ZOOM, zoom + 0.02)
         // Adjust pan to keep center of screen as pivot
@@ -246,7 +435,7 @@ export function Simulation() {
           newPanY = centerY - (centerY - panY) * zoomRatio
         }
       }
-      if (pressedKeys.has('Minus')) {
+      if (pressedKeys.has('Minus') || pressedKeys.has('KeyZ')) {
         const oldZoom = zoom
         newZoom = Math.max(MIN_ZOOM, zoom - 0.02)
         // Adjust pan to keep center of screen as pivot
@@ -285,7 +474,7 @@ export function Simulation() {
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return
 
       // Handle navigation keys (arrows + WASD)
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Equal', 'Minus'].includes(e.code)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Equal', 'Minus', 'KeyZ', 'KeyX'].includes(e.code)) {
         e.preventDefault()
         setPressedKeys(prev => new Set(prev).add(e.code))
         setIsKeyboardPanning(true)
@@ -301,16 +490,23 @@ export function Simulation() {
         resetSimulation()
       }
 
-      if (e.key.toLowerCase() === "g") {
-        setShowGrid((g: boolean) => !g)
-      }
-
       if (e.key.toLowerCase() === "f") {
         setShowFps((f: boolean) => !f)
       }
 
+      if (e.key.toLowerCase() === "g") {
+        setShowGrid((g: boolean) => !g)
+      }
+
       if (e.key.toLowerCase() === "e" || e.key === "Shift") {
-        setEditMode((editMode) => editMode === "place" ? "select" : "place")
+        setEditMode((editMode) => {
+          switch (editMode) {
+            case "move": return "place"
+            case "place": return "select"
+            case "select": return "move"
+            default: return "place"
+          }
+        })
       }
 
       if (e.key === "Escape") {
@@ -322,7 +518,10 @@ export function Simulation() {
           updateGrid(cellsToAdd, cellsToRemove)
         }
         setSelectedPreset(null)
-        setTempPreset([])
+        // Don't clear tempPreset if we're in export mode
+        if (!isExportMode) {
+          setTempPreset([])
+        }
         setSelectedCells(new Set())
         setOriginalCellPositions(new Set())
         setSelectionBox(null)
@@ -373,39 +572,45 @@ export function Simulation() {
           setPersistentSelection(null)
         }
 
-        // Cancel export selection if active
-        if (isSelectingForExport) {
-          setIsSelectingForExport(false)
+        // Cancel export mode if active
+        if (isExportMode) {
+          setIsExportMode(false)
           setExportSelectionBox(null)
-          setEditMode("place")
+        }
+        // Clear exporting state if active
+        if (isExporting) {
+          setIsExporting(false)
         }
       }
 
-      if (/^[1-4]$/.test(e.key)) {
-        // Map 1->slowest, 2->medium, 3->fast, 4->fastest (maximum speed range)
+      if (e.key.toLowerCase() === "l") {
+        setLightspeed()
+      }
+
+      if (/^[1-5]$/.test(e.key)) {
+        // Map 1->singular, 2->line, 3->rectangle, 4->fill, 5->circle
         switch (e.key) {
           case "1":
-            setSpeedSlider(0)   // Slowest (1000ms interval)
-            setSpeed(0)
+            setBrushMode("singular")
             break
           case "2":
-            setSpeedSlider(33)  // Medium (59ms interval)
-            setSpeed(33)
+            setBrushMode("line")
             break
           case "3":
-            setSpeedSlider(67)  // Fast (35ms interval)
-            setSpeed(67)
+            setBrushMode("rectangle")
             break
           case "4":
-            setSpeedSlider(100) // Fastest (25ms interval)
-            setSpeed(100)
+            setBrushMode("fill")
+            break
+          case "5":
+            setBrushMode("circle")
             break
         }
       }
     }
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Equal', 'Minus'].includes(e.code)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Equal', 'Minus', 'KeyZ', 'KeyX'].includes(e.code)) {
         e.preventDefault()
         setPressedKeys(prev => {
           const newSet = new Set(prev)
@@ -421,7 +626,7 @@ export function Simulation() {
       window.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("keyup", onKeyUp)
     }
-  }, [handleSpacebar, resetSimulation, originalCellPositions, tempPreset, persistentSelection, updateGrid, setSelectedPreset, setTempPreset, setSelectedCells, setOriginalCellPositions, setSelectionBox, setIsDraggingSelection, setPersistentSelection, setSpeedSlider, setSpeed, setPressedKeys, setIsKeyboardPanning, setShowGrid, setShowFps, setEditMode, isSelectingForExport, setIsSelectingForExport, setExportSelectionBox])
+  }, [handleSpacebar, resetSimulation, originalCellPositions, tempPreset, persistentSelection, updateGrid, setSelectedPreset, setTempPreset, setSelectedCells, setOriginalCellPositions, setSelectionBox, setIsDraggingSelection, setPersistentSelection, setSpeedSlider, setSpeed, setPressedKeys, setIsKeyboardPanning, setShowGrid, setShowFps, setEditMode, isExportMode, setIsExportMode, setExportSelectionBox, setExportCells, isExporting, setIsExporting, editMode, setBrushMode, setLightspeed])
 
   const blueprintCells = useMemo(() => {
     const cells: Array<{ x: number; y: number; isBlueprint: boolean }> = []
@@ -470,6 +675,11 @@ export function Simulation() {
     const gridX = Math.floor((mouseX - panX) / cellSize)
     const gridY = Math.floor((mouseY - panY) / cellSize)
 
+    // Don't place cells during export mode or if export selection just completed
+    if (isExportMode || exportSelectionBox || isExporting) {
+      return
+    }
+
     // Right-click cancels preset selection or restores selected cells
     if (e.button === 2) {
       e.preventDefault() // Prevent context menu and panning
@@ -515,13 +725,20 @@ export function Simulation() {
       return
     }
 
-    // Normal cell toggle behavior (left-click only) - only in place mode
-    if (e.button === 0 && editMode === "place") {
-      if (grid.has(gridX, gridY)) {
-        updateGrid([], [{ x: gridX, y: gridY }])
-      } else {
-        updateGrid([{ x: gridX, y: gridY }], [])
-      }
+    // Move mode: do nothing on click (panning handled by mouse move)
+    if (editMode === "move") {
+      return
+    }
+
+    // Select mode: handled in handleMouseDown
+    if (editMode === "select") {
+      return
+    }
+
+    // Place mode: only handle non-singular brushes here
+    if (e.button === 0 && editMode === "place" && brushMode !== "singular") {
+      // For singular brush, clicking places a single cell - handled in handleMouseDown
+      return
     }
   }
 
@@ -531,30 +748,46 @@ export function Simulation() {
       return
     }
 
-    // Handle export selection mode - simple drag-to-select for export
-    if (isSelectingForExport && e.button === 0) {
-      const exportCanvas = canvasRef.current
-      if (!exportCanvas) return
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-      const exportRect = exportCanvas.getBoundingClientRect()
-      const exportMouseX = e.clientX - exportRect.left
-      const exportMouseY = e.clientY - exportRect.top
+    const rect = canvas.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
 
-      console.log('=== START EXPORT SELECTION ===')
-      console.log('Mouse position:', exportMouseX, exportMouseY)
+    const cellSize = CELL_SIZE * zoom
+    const gridX = Math.floor((mouseX - panX) / cellSize)
+    const gridY = Math.floor((mouseY - panY) / cellSize)
 
-      // Store pixel coordinates instead of grid coordinates for simplicity
+    // Handle export mode - drag to select cells for export
+    if (isExportMode && e.button === 0) {
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const rect = canvas.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+
+      // Start export selection box
       setExportSelectionBox({
-        startX: exportMouseX,
-        startY: exportMouseY,
-        endX: exportMouseX,
-        endY: exportMouseY
+        startX: mouseX,
+        startY: mouseY,
+        endX: mouseX,
+        endY: mouseY
       })
       return
     }
 
-    // Only allow selection when in select mode, simulation is paused, and no preset is selected
-    if (editMode === "select" && !isRunning && !selectedPreset && e.button === 0) {
+    // Move mode: start panning
+    if (editMode === "move") {
+      setDragStartPos({ x: e.clientX, y: e.clientY })
+      setDragStartPan({ x: panX, y: panY })
+      setIsDragging(false)
+      return
+    }
+
+    // Select mode: start selection
+    if (editMode === "select" && !isRunning && !selectedPreset && !isExportMode && !isExporting) {
       const canvas = canvasRef.current
       if (!canvas) return
 
@@ -646,7 +879,7 @@ export function Simulation() {
           // Clear persistent selection and place cells with transformations applied
           if (persistentSelection.cells.length > 0) {
             // Apply transformations to cells before placing them back
-            const transformedCells = persistentSelection.cells.map(cell => {
+            const transformedCells = persistentSelection.cells.map((cell: { x: number; y: number }) => {
               let transformedX = persistentSelection.box.startX + cell.x
               let transformedY = persistentSelection.box.startY + cell.y
 
@@ -712,15 +945,308 @@ export function Simulation() {
       return
     }
 
-    setDragStartPos({ x: e.clientX, y: e.clientY })
-    setDragStartPan({ x: panX, y: panY })
-    setIsDragging(false)
+  // Check if clicking inside persistent selection area (not on control knobs) for dragging
+  if (persistentSelection) {
+    const minX = Math.min(persistentSelection.box.startX, persistentSelection.box.endX)
+    const maxX = Math.max(persistentSelection.box.startX, persistentSelection.box.endX)
+    const minY = Math.min(persistentSelection.box.startY, persistentSelection.box.endY)
+    const maxY = Math.max(persistentSelection.box.startY, persistentSelection.box.endY)
+
+    if (gridX >= minX && gridX <= maxX && gridY >= minY && gridY <= maxY) {
+      setIsDraggingMoveKnob(true)
+      setSelectionDragStart({ x: mouseX, y: mouseY })
+      return
+    }
   }
 
-  const handleMouseMoveCanvas = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Stop keyboard panning when mouse moves
-    if (isKeyboardPanning) {
-      setIsKeyboardPanning(false)
+  // Check if clicking on resize handle (legacy)
+  if (selectionBox) {
+    const maxX = Math.max(selectionBox.startX, selectionBox.endX)
+    const maxY = Math.max(selectionBox.startY, selectionBox.endY)
+    const handleX = maxX + 0.5
+    const handleY = maxY + 0.5
+    const handleScreenX = handleX * cellSize + panX
+    const handleScreenY = handleY * cellSize + panY
+    const distance = Math.sqrt((mouseX - handleScreenX) ** 2 + (mouseY - handleScreenY) ** 2)
+
+    if (distance <= cellSize / 2) {
+      setIsDraggingHandle(true)
+      return
+    }
+  }
+
+  // Check if clicking inside existing selection box for dragging
+  if (selectionBox) {
+    const minX = Math.min(selectionBox.startX, selectionBox.endX)
+    const maxX = Math.max(selectionBox.startX, selectionBox.endX)
+    const minY = Math.min(selectionBox.startY, selectionBox.endY)
+    const maxY = Math.max(selectionBox.startY, selectionBox.endY)
+
+    if (gridX >= minX && gridX <= maxX && gridY >= minY && gridY <= maxY) {
+      setIsMovingSelection(true)
+      setSelectionDragStart({ x: mouseX, y: mouseY })
+      setSelectionPosition({ x: gridX, y: gridY })
+      setSelectionOffset({ x: 0, y: 0 })
+      return
+    }
+  }
+
+  // Check if clicking outside persistent selection - deselect
+  if (persistentSelection) {
+    const minX = Math.min(persistentSelection.box.startX, persistentSelection.box.endX)
+    const maxX = Math.max(persistentSelection.box.startX, persistentSelection.box.endX)
+    const minY = Math.min(persistentSelection.box.startY, persistentSelection.box.endY)
+    const maxY = Math.max(persistentSelection.box.startY, persistentSelection.box.endY)
+
+    if (gridX < minX || gridX > maxX || gridY < minY || gridY > maxY) {
+      // Clear persistent selection and place cells with transformations applied
+      if (persistentSelection.cells.length > 0) {
+        // Apply transformations to cells before placing them back
+        const transformedCells = persistentSelection.cells.map((cell: { x: number; y: number }) => {
+          let transformedX = persistentSelection.box.startX + cell.x
+          let transformedY = persistentSelection.box.startY + cell.y
+
+          // Apply rotation
+          if (persistentSelection.rotation !== 0) {
+            const centerX = (Math.min(persistentSelection.box.startX, persistentSelection.box.endX) +
+                            Math.max(persistentSelection.box.startX, persistentSelection.box.endX)) / 2
+            const centerY = (Math.min(persistentSelection.box.startY, persistentSelection.box.endY) +
+                            Math.max(persistentSelection.box.startY, persistentSelection.box.endY)) / 2
+
+            const cos = Math.cos(persistentSelection.rotation * Math.PI / 180)
+            const sin = Math.sin(persistentSelection.rotation * Math.PI / 180)
+
+            const relX = transformedX - centerX
+            const relY = transformedY - centerY
+
+            transformedX = centerX + relX * cos - relY * sin
+            transformedY = centerY + relX * sin + relY * cos
+          }
+
+          // Apply mirroring
+          if (persistentSelection.mirrorHorizontal) {
+            const minX = Math.min(persistentSelection.box.startX, persistentSelection.box.endX)
+            const maxX = Math.max(persistentSelection.box.startX, persistentSelection.box.endX)
+            transformedX = minX + maxX - transformedX
+          }
+
+          if (persistentSelection.mirrorVertical) {
+            const minY = Math.min(persistentSelection.box.startY, persistentSelection.box.endY)
+            const maxY = Math.max(persistentSelection.box.startY, persistentSelection.box.endY)
+            transformedY = minY + maxY - transformedY
+          }
+
+          return { x: Math.round(transformedX), y: Math.round(transformedY) }
+        })
+
+        updateGrid(transformedCells, [])
+      }
+      setPersistentSelection(null)
+      return
+    }
+  }
+
+  // Place mode: start drawing with current brush
+  if (editMode === "place" && e.button === 0) {
+    const startGridX = Math.floor((mouseX - panX) / cellSize)
+    const startGridY = Math.floor((mouseY - panY) / cellSize)
+
+    // For singular brush, place a single cell immediately
+    if (brushMode === "singular") {
+      if (grid.has(startGridX, startGridY)) {
+        updateGrid([], [{ x: startGridX, y: startGridY }])
+      } else {
+        updateGrid([{ x: startGridX, y: startGridY }], [])
+      }
+    } else {
+      // For other brushes, just set the drawing start
+      setIsDrawing(true)
+      setBrushPreview({
+        type: brushMode,
+        start: { x: startGridX, y: startGridY },
+        end: { x: startGridX, y: startGridY },
+        cells: [],
+        limitReached: false
+      })
+    }
+    return
+  }
+
+  // Start new selection
+  const selectionCanvas = canvasRef.current
+  if (!selectionCanvas) return
+
+  const selectionRect = selectionCanvas.getBoundingClientRect()
+  const selectionMouseX = e.clientX - selectionRect.left
+  const selectionMouseY = e.clientY - selectionRect.top
+
+  console.log('=== START SELECTION ===')
+  console.log('Mouse position:', selectionMouseX, selectionMouseY)
+
+  // Store pixel coordinates for consistency
+  setSelectionBox({
+    startX: selectionMouseX,
+    startY: selectionMouseY,
+    endX: selectionMouseX,
+    endY: selectionMouseY
+  })
+  setIsDraggingSelection(true)
+  return
+}
+
+const handleMouseMoveCanvas = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Stop keyboard panning when mouse moves
+  if (isKeyboardPanning) {
+    setIsKeyboardPanning(false)
+  }
+
+  const canvas = canvasRef.current
+  if (!canvas) return
+
+  const rect = canvas.getBoundingClientRect()
+  const mouseX = e.clientX - rect.left
+  const mouseY = e.clientY - rect.top
+
+  // Handle export selection box dragging
+  if (isExportMode && exportSelectionBox) {
+    setExportSelectionBox(prev => prev ? {
+      ...prev,
+      endX: mouseX,
+      endY: mouseY
+    } : null)
+    // Force immediate re-render
+    setGridUpdateCounter(prev => prev + 1)
+    return
+  }
+
+  // Handle selection box dragging (regular selection only)
+  if (isDraggingSelection && selectionBox) {
+    const rect = canvas.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+
+    setSelectionBox(prev => prev ? {
+      ...prev,
+      endX: mouseX,
+      endY: mouseY
+    } : null)
+    // Force immediate re-render
+    setGridUpdateCounter(prev => prev + 1)
+    return
+  }
+
+  // Handle selection moving
+  if (isMovingSelection && selectionDragStart && selectionPosition) {
+    const cellSize = CELL_SIZE * zoom
+    const dx = mouseX - selectionDragStart.x
+    const dy = mouseY - selectionDragStart.y
+    const cellDx = Math.round(dx / cellSize)
+    const cellDy = Math.round(dy / cellSize)
+    setSelectionOffset({ x: cellDx, y: cellDy })
+    return
+  }
+
+  // Handle move knob dragging
+  if (isDraggingMoveKnob && persistentSelection && selectionDragStart) {
+    const cellSize = CELL_SIZE * zoom
+    const dx = mouseX - selectionDragStart.x
+    const dy = mouseY - selectionDragStart.y
+
+    // Calculate target grid position
+    const targetGridX = Math.round((selectionDragStart.x + dx - panX) / cellSize)
+    const targetGridY = Math.round((selectionDragStart.y + dy - panY) / cellSize)
+
+    // Calculate current grid position
+    const currentMinX = Math.min(persistentSelection.box.startX, persistentSelection.box.endX)
+    const currentMinY = Math.min(persistentSelection.box.startY, persistentSelection.box.endY)
+
+    // Calculate delta needed
+    const cellDx = targetGridX - currentMinX
+    const cellDy = targetGridY - currentMinY
+
+    // Only update if we've moved
+    if (cellDx !== 0 || cellDy !== 0) {
+      setPersistentSelection(prev => prev ? {
+        ...prev,
+        box: {
+          startX: prev.box.startX + cellDx,
+          startY: prev.box.startY + cellDy,
+          endX: prev.box.endX + cellDx,
+          endY: prev.box.endY + cellDy
+        }
+      } : null)
+    }
+    return
+  }
+
+  // Handle drawing in place mode
+  if (editMode === "place" && isDrawing && brushPreview) {
+    const cellSize = CELL_SIZE * zoom
+    const currentGridX = Math.floor((mouseX - panX) / cellSize)
+    const currentGridY = Math.floor((mouseY - panY) / cellSize)
+
+    // Calculate preview cells for the current brush
+    const previewResult = calculateBrushPreview(brushPreview.start, { x: currentGridX, y: currentGridY }, brushMode as 'line' | 'rectangle' | 'circle' | 'fill')
+
+    // Update preview state
+    setBrushPreview(prev => prev ? {
+      ...prev,
+      end: { x: currentGridX, y: currentGridY },
+      cells: previewResult.cells,
+      limitReached: previewResult.limitReached
+    } : null)
+    return
+  }
+
+  // Handle move mode panning
+  if (editMode === "move" && dragStartPos.x !== 0 && dragStartPos.y !== 0) {
+    const dx = e.clientX - dragStartPos.x
+    const dy = e.clientY - dragStartPos.y
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      setIsDragging(true)
+      setPanX(dragStartPan.x + dx)
+      setPanY(dragStartPan.y + dy)
+    }
+    return
+  }
+
+  // Update mouse position for preset preview (selected cells blueprint)
+  if (tempPreset.length > 0) {
+    setMousePosition({ x: mouseX, y: mouseY })
+  }
+
+  // Update mouse position for preset preview
+  if (selectedPreset) {
+    setMousePosition({ x: mouseX, y: mouseY })
+  }
+
+  // Always update mouse position so blueprint cells follow cursor
+  setMousePosition({ x: mouseX, y: mouseY })
+
+  if (dragStartPos.x === 0 && dragStartPos.y === 0) {
+    const cellSize = CELL_SIZE * zoom
+    const gridX = Math.floor((mouseX - panX) / cellSize)
+    const gridY = Math.floor((mouseY - panY) / cellSize)
+
+    setCursorOnCell(grid.has(gridX, gridY))
+    return
+  }
+
+  const dx = e.clientX - dragStartPos.x
+  const dy = e.clientY - dragStartPos.y
+
+  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+    setIsDragging(true)
+    setPanX(dragStartPan.x + dx)
+    setPanY(dragStartPan.y + dy)
+  }
+}
+
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Prevent right-click from triggering panning
+    if (e.button === 2) {
+      return
     }
 
     const canvas = canvasRef.current
@@ -730,126 +1256,8 @@ export function Simulation() {
     const mouseX = e.clientX - rect.left
     const mouseY = e.clientY - rect.top
 
-    // Handle export selection dragging
-    if (isSelectingForExport && exportSelectionBox) {
-      const rect = canvas.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left
-      const mouseY = e.clientY - rect.top
-
-      console.log('=== UPDATE EXPORT SELECTION ===')
-      console.log('Current mouse pixel coords:', mouseX, mouseY)
-      console.log('Current selection box:', exportSelectionBox)
-
-      setExportSelectionBox(prev => prev ? {
-        ...prev,
-        endX: mouseX,
-        endY: mouseY
-      } : null)
-      return
-    }
-
-    // Handle selection box dragging
-    if (isDraggingSelection && selectionBox) {
-      const rect = canvas.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left
-      const mouseY = e.clientY - rect.top
-
-      console.log('=== UPDATE SELECTION ===')
-      console.log('Current mouse pixel coords:', mouseX, mouseY)
-      console.log('Current selection box:', selectionBox)
-
-      setSelectionBox(prev => prev ? {
-        ...prev,
-        endX: mouseX,
-        endY: mouseY
-      } : null)
-      return
-    }
-
-    // Handle selection moving
-    if (isMovingSelection && selectionDragStart && selectionPosition) {
-      const cellSize = CELL_SIZE * zoom
-      const dx = mouseX - selectionDragStart.x
-      const dy = mouseY - selectionDragStart.y
-      const cellDx = Math.round(dx / cellSize)
-      const cellDy = Math.round(dy / cellSize)
-      setSelectionOffset({ x: cellDx, y: cellDy })
-      return
-    }
-
-    // Handle move knob dragging
-    if (isDraggingMoveKnob && persistentSelection && selectionDragStart) {
-      const cellSize = CELL_SIZE * zoom
-      const dx = mouseX - selectionDragStart.x
-      const dy = mouseY - selectionDragStart.y
-
-      // Calculate target grid position
-      const targetGridX = Math.round((selectionDragStart.x + dx - panX) / cellSize)
-      const targetGridY = Math.round((selectionDragStart.y + dy - panY) / cellSize)
-
-      // Calculate current grid position
-      const currentMinX = Math.min(persistentSelection.box.startX, persistentSelection.box.endX)
-      const currentMinY = Math.min(persistentSelection.box.startY, persistentSelection.box.endY)
-
-      // Calculate delta needed
-      const cellDx = targetGridX - currentMinX
-      const cellDy = targetGridY - currentMinY
-
-      // Only update if we've moved
-      if (cellDx !== 0 || cellDy !== 0) {
-        setPersistentSelection(prev => prev ? {
-          ...prev,
-          box: {
-            startX: prev.box.startX + cellDx,
-            startY: prev.box.startY + cellDy,
-            endX: prev.box.endX + cellDx,
-            endY: prev.box.endY + cellDy
-          }
-        } : null)
-      }
-      return
-    }
-
-    // Update mouse position for preset preview (selected cells blueprint)
-    if (tempPreset.length > 0) {
-      setMousePosition({ x: mouseX, y: mouseY })
-    }
-
-    // Update mouse position for preset preview
-    if (selectedPreset) {
-      setMousePosition({ x: mouseX, y: mouseY })
-    }
-
-    // Always update mouse position so blueprint cells follow cursor
-    setMousePosition({ x: mouseX, y: mouseY })
-
-    if (dragStartPos.x === 0 && dragStartPos.y === 0) {
-      const cellSize = CELL_SIZE * zoom
-      const gridX = Math.floor((mouseX - panX) / cellSize)
-      const gridY = Math.floor((mouseY - panY) / cellSize)
-
-      setCursorOnCell(grid.has(gridX, gridY))
-      return
-    }
-
-    const dx = e.clientX - dragStartPos.x
-    const dy = e.clientY - dragStartPos.y
-
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-      setIsDragging(true)
-      setPanX(dragStartPan.x + dx)
-      setPanY(dragStartPan.y + dy)
-    }
-  }
-
-  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Prevent right-click from triggering panning
-    if (e.button === 2) {
-      return
-    }
-
     // Handle export selection completion
-    if (isSelectingForExport && exportSelectionBox) {
+    if (isExportMode && exportSelectionBox) {
       const canvas = canvasRef.current
       if (!canvas) return
 
@@ -864,19 +1272,12 @@ export function Simulation() {
         endY: mouseY
       }
 
-      console.log('=== EXPORT SELECTION COMPLETE ===')
-      console.log('Final pixel selection box:', finalBox)
-
       // Get all cells from the grid
       const allGridCells = grid.getAllCells()
-      console.log('Total cells in grid:', allGridCells.size)
-
       if (allGridCells.size === 0) {
-        console.log('No cells in grid!')
-        alert('No cells found in the grid. Please add some cells first.')
-        setIsSelectingForExport(false)
+        showToast('No cells found in the grid. Please add some cells first.', "error")
+        setIsExportMode(false)
         setExportSelectionBox(null)
-        setEditMode("place")
         return
       }
 
@@ -886,9 +1287,6 @@ export function Simulation() {
       const maxPixelX = Math.max(finalBox.startX, finalBox.endX)
       const minPixelY = Math.min(finalBox.startY, finalBox.endY)
       const maxPixelY = Math.max(finalBox.startY, finalBox.endY)
-
-      console.log('Pixel bounds:', { minPixelX, maxPixelX, minPixelY, maxPixelY })
-      console.log('Cell size:', cellSize, 'Zoom:', zoom)
 
       // Find cells that fall within the pixel selection bounds
       const selectedCells: Array<{ x: number; y: number }> = []
@@ -901,68 +1299,44 @@ export function Simulation() {
         const cellPixelX = x * cellSize + panX
         const cellPixelY = y * cellSize + panY
 
-        console.log(`Checking cell ${x},${y} -> pixel ${cellPixelX},${cellPixelY}`)
-
         // Check if cell falls within the selection bounds
         if (cellPixelX >= minPixelX && cellPixelX <= maxPixelX &&
             cellPixelY >= minPixelY && cellPixelY <= maxPixelY) {
           selectedCells.push({ x: x, y: y })
           foundCells++
-          console.log('Found cell in selection:', x, y)
         }
       })
 
-      console.log('Found cells in selection:', foundCells)
-      console.log('Selected cells array:', selectedCells)
-
       if (foundCells === 0) {
-        console.log('No cells found in selection box')
-        alert('No cells found in the selected area. Please make sure there are cells in the area you selected.')
-        setIsSelectingForExport(false)
+        showToast('No cells found in the selected area. Please make sure there are cells in the area you selected.', "error")
         setExportSelectionBox(null)
-        setEditMode("place")
         return
       }
 
-      // Set tempPreset with the selected cells (convert back to relative coordinates)
-      const minGridX = Math.floor((minPixelX - panX) / cellSize)
-      const minGridY = Math.floor((minPixelY - panY) / cellSize)
-
+      // Convert to relative coordinates (like preset format)
+      const minGridX = Math.min(...selectedCells.map(cell => cell.x))
+      const minGridY = Math.min(...selectedCells.map(cell => cell.y))
       const relativeCells = selectedCells.map(cell => ({
         x: cell.x - minGridX,
         y: cell.y - minGridY
       }))
 
-      setTempPreset(relativeCells)
-      console.log('Set tempPreset with:', relativeCells.length, 'cells')
+      // Set export cells and open modal
+      setExportCells(relativeCells)
+      setIsExporting(true)
 
-      // Clear export selection state
-      setExportSelectionBox(null)
-      setIsSelectingForExport(false)
-      setEditMode("place")
-
-      // Open the export modal immediately
-      setShowImportExport(true)
+      // Clear export state after a short delay to ensure no mouse events interfere
+      setTimeout(() => {
+        setIsExportMode(false)
+        setExportSelectionBox(null)
+        setIsExporting(false)
+        setShowImportExport(true)
+      }, 50)
       return
     }
 
-    // Handle selection moving completion
-    if (isMovingSelection && selectionOffset && selectionBox) {
-      // Apply the offset to the temp preset
-      const offsetX = selectionOffset.x
-      const offsetY = selectionOffset.y
-
-      if (offsetX !== 0 || offsetY !== 0) {
-        const newTempPreset = tempPreset.map((cell: { x: number; y: number }) => ({
-          x: cell.x + offsetX,
-          y: cell.y + offsetY
-        }))
-        setTempPreset(newTempPreset)
-      }
-
-      setIsMovingSelection(false)
-      setSelectionDragStart(null)
-      setSelectionOffset({ x: 0, y: 0 })
+    // Don't allow cell placement during export mode
+    if (isExportMode || exportSelectionBox || isExporting) {
       return
     }
 
@@ -989,15 +1363,10 @@ export function Simulation() {
         endY: mouseY
       }
 
-      console.log('=== SELECTION COMPLETE ===')
-      console.log('Final pixel selection box:', finalBox)
-
       // Get all cells from the grid
       const allGridCells = grid.getAllCells()
-      console.log('Total cells in grid:', allGridCells.size)
 
       if (allGridCells.size === 0) {
-        console.log('No cells in grid!')
         setSelectionBox(null)
         setIsDraggingSelection(false)
         setJustCompletedSelection(false)
@@ -1010,8 +1379,6 @@ export function Simulation() {
       const maxPixelX = Math.max(finalBox.startX, finalBox.endX)
       const minPixelY = Math.min(finalBox.startY, finalBox.endY)
       const maxPixelY = Math.max(finalBox.startY, finalBox.endY)
-
-      console.log('Pixel bounds:', { minPixelX, maxPixelX, minPixelY, maxPixelY })
 
       // Find cells that fall within the pixel selection bounds
       const cells = new Set<string>()
@@ -1029,11 +1396,8 @@ export function Simulation() {
             cellPixelY >= minPixelY && cellPixelY <= maxPixelY) {
           cells.add(cellKey)
           foundCells++
-          console.log('Found cell in selection:', x, y)
         }
       })
-
-      console.log('Found cells in selection:', foundCells)
 
       // Convert selected cells to preset format
       const originalCells = Array.from(cells)
@@ -1081,6 +1445,38 @@ export function Simulation() {
       setSelectionBox(null)
       setIsDraggingSelection(false)
       setJustCompletedSelection(false)
+    }
+
+    // Handle drawing completion in place mode
+    if (editMode === "place" && isDrawing && brushPreview) {
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const rect = canvas.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+
+      const cellSize = CELL_SIZE * zoom
+      const endGridX = Math.floor((mouseX - panX) / cellSize)
+      const endGridY = Math.floor((mouseY - panY) / cellSize)
+
+      // Apply the drawing for non-singular brushes
+      if (brushMode !== "singular") {
+        const finalResult = calculateBrushPreview(brushPreview.start, { x: endGridX, y: endGridY }, brushMode as 'line' | 'rectangle' | 'circle' | 'fill')
+
+        // Show toast if fill limit was reached
+        if (finalResult.limitReached) {
+          showToast("Fill operation reached the maximum limit of 25,000 cells. The fill was truncated.", "error")
+        }
+
+        if (finalResult.cells.length > 0) {
+          updateGrid(finalResult.cells.filter((cell: { x: number; y: number }) => !grid.has(cell.x, cell.y)), finalResult.cells.filter((cell: { x: number; y: number }) => grid.has(cell.x, cell.y)))
+        }
+      }
+
+      // Clear drawing state
+      setIsDrawing(false)
+      setBrushPreview(null)
     }
 
     setTimeout(() => {
@@ -1147,33 +1543,38 @@ export function Simulation() {
   }
 
   const handleExportComplete = () => {
-    setTempPreset([])
+    // Clear export cells after successful export
+    setExportCells([])
     setSelectedCells(new Set())
     setOriginalCellPositions(new Set())
     setSelectionBox(null)
     setEditMode("place")
-
-    // Clear export selection state if still active
-    if (isSelectingForExport) {
-      setIsSelectingForExport(false)
-      setExportSelectionBox(null)
-    }
+    showToast("Pattern exported successfully!", "success")
   }
 
   const handleImportComplete = (presets: Record<string, Array<{ x: number; y: number }>>) => {
     setCustomPresets(prev => ({ ...prev, ...presets }))
     const presetNames = Object.keys(presets)
     if (presetNames.length > 0) {
-      showToast(`${presetNames.length === 1 ? presetNames[0] : `${presetNames.length} patterns`} imported successfully!`)
+      // Successfully imported patterns
+      showToast(`Imported ${presetNames.length} pattern${presetNames.length > 1 ? 's' : ''}: ${presetNames.join(', ')}`, "success")
     }
   }
 
   const handleStartExport = () => {
-    setEditMode("select")
-    setIsSelectingForExport(true)
+    setIsExportMode(true)
+    setShowImportExport(true)
   }
 
   const [showPresets, setShowPresets] = useState(false);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message, type }])
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id))
+    }, 3000)
+  }
 
   return (
     <main className="relative min-h-screen bg-background overflow-hidden">
@@ -1194,9 +1595,89 @@ export function Simulation() {
         ))}
       </div>
 
+      {/* Top Left - Mode Indicator */}
+      <div className="absolute top-4 left-4 z-30">
+        <div className="glass-card border border-violet/30 rounded-lg px-3 py-2 bg-gradient-to-r from-violet/10 to-purple/10 backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${
+              editMode === 'move' ? 'bg-blue-400' :
+              editMode === 'place' ? 'bg-green-400' : 'bg-orange-400'
+            }`}></div>
+            <span className="text-sm font-medium text-foreground/90">
+              {editMode === 'move' ? 'Move Mode' :
+               editMode === 'place' ? 'Place Mode' : 'Select Mode'}
+            </span>
+            {editMode === 'place' && (
+              <span className="text-xs text-foreground/70 ml-1">
+                ({brushMode})
+              </span>
+            )}
+          </div>
+          {editMode === 'place' && (
+            <div className="flex gap-1 mt-2">
+              <button
+                onClick={() => setBrushMode("singular")}
+                className={`w-8 h-8 rounded transition-colors flex items-center justify-center ${
+                  brushMode === "singular"
+                    ? 'bg-green-400 text-black'
+                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+                title="Dot brush (1)"
+              >
+                <Box className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setBrushMode("line")}
+                className={`w-8 h-8 rounded transition-colors flex items-center justify-center ${
+                  brushMode === "line"
+                    ? 'bg-green-400 text-black'
+                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+                title="Line brush (2)"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setBrushMode("rectangle")}
+                className={`w-8 h-8 rounded transition-colors flex items-center justify-center ${
+                  brushMode === "rectangle"
+                    ? 'bg-green-400 text-black'
+                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+                title="Rectangle brush (3)"
+              >
+                <Square className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setBrushMode("fill")}
+                className={`w-8 h-8 rounded transition-colors flex items-center justify-center ${
+                  brushMode === "fill"
+                    ? 'bg-green-400 text-black'
+                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+                title="Fill brush (4)"
+              >
+                <PaintBucket className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setBrushMode("circle")}
+                className={`w-8 h-8 rounded transition-colors flex items-center justify-center ${
+                  brushMode === "circle"
+                    ? 'bg-green-400 text-black'
+                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+                title="Circle brush (5)"
+              >
+                <Circle className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Export Selection Mode Indicator */}
-      {isSelectingForExport && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 glass-card border border-orange-500/50 rounded-lg px-4 py-2 bg-orange-500/20 backdrop-blur-sm">
+      {isExportMode && (
+        <div className="absolute top-24 left-4 z-30 glass-card border border-orange-500/50 rounded-lg px-4 py-2 bg-orange-500/20 backdrop-blur-sm">
           <span className="text-orange-400 font-medium">Export Selection Mode - Drag to select cells for export</span>
         </div>
       )}
@@ -1244,52 +1725,58 @@ export function Simulation() {
           {showControls && (
             <div className="absolute top-full right-0 mt-2 w-80 glass-card border border-violet/50 rounded-lg p-4 bg-black/90 backdrop-blur-sm">
               <div className="space-y-3">
-                <h3 className="text-lg font-bold text-violet-400 mb-3">Keyboard Controls</h3>
+                <h3 className="text-lg font-bold text-violet-400 mb-3">Controls</h3>
 
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Space</span>
-                    <span className="text-white">Play/Pause</span>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <div className="text-gray-300 font-medium mb-1">Navigation</div>
+                    <div className="text-white space-y-1 pl-2">
+                      <div><span className="text-gray-400">Arrow Keys / WASD</span> Pan view</div>
+                      <div><span className="text-gray-400">+/-</span> Zoom in/out</div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">R</span>
-                    <span className="text-white">Reset</span>
+
+                  <div>
+                    <div className="text-gray-300 font-medium mb-1">Simulation</div>
+                    <div className="text-white space-y-1 pl-2">
+                      <div><span className="text-gray-400">Space</span> Play/Pause</div>
+                      <div><span className="text-gray-400">R</span> Reset</div>
+                      <div><span className="text-gray-400">L</span> Lightspeed</div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">1-4</span>
-                    <span className="text-white">Speed (Slow/Med/Fast/Turbo)</span>
+
+                  <div>
+                    <div className="text-gray-300 font-medium mb-1">Edit Mode</div>
+                    <div className="text-white space-y-1 pl-2">
+                      <div><span className="text-gray-400">E / Shift</span> Cycle: Move → Place → Select</div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Arrow Keys / WASD</span>
-                    <span className="text-white">Pan View</span>
+
+                  <div>
+                    <div className="text-gray-300 font-medium mb-1">Brushes (Place Mode)</div>
+                    <div className="text-white space-y-1 pl-2">
+                      <div><span className="text-gray-400">1</span> Dot</div>
+                      <div><span className="text-gray-400">2</span> Line</div>
+                      <div><span className="text-gray-400">3</span> Rectangle</div>
+                      <div><span className="text-gray-400">4</span> Fill (max 25,000 cells)</div>
+                      <div><span className="text-gray-400">5</span> Circle</div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">+ / -</span>
-                    <span className="text-white">Zoom In/Out</span>
+
+                  <div>
+                    <div className="text-gray-300 font-medium mb-1">Display</div>
+                    <div className="text-white space-y-1 pl-2">
+                      <div><span className="text-gray-400">G</span> Toggle grid</div>
+                      <div><span className="text-gray-400">F</span> Toggle FPS</div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">F</span>
-                    <span className="text-white">Toggle FPS Counter</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Escape</span>
-                    <span className="text-white">Cancel Selection/Preset</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">E / Shift</span>
-                    <span className="text-white">Toggle Place/Select Mode</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Select Mode</span>
-                    <span className="text-white">Drag to select cells, click inside to move</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Selection Area</span>
-                    <span className="text-white">Click anywhere inside to drag selection</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Floating Buttons</span>
-                    <span className="text-white">Delete (✕), rotate (↻), mirror (↔/↕), duplicate (⧉)</span>
+
+                  <div>
+                    <div className="text-gray-300 font-medium mb-1">Mouse</div>
+                    <div className="text-white space-y-1 pl-2">
+                      <div><span className="text-gray-400">Click</span> Place cells or select</div>
+                      <div><span className="text-gray-400">Drag</span> Pan (Move) or select area (Select)</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1354,7 +1841,6 @@ export function Simulation() {
                           console.log('Loading preset:', templateName)
                           setSelectedPreset(templateName);
                           setShowPresets(false);
-                          showToast(`"${templateName}" pattern loaded!`)
                         }}
                         className="p-2 rounded-md bg-transparent border-2 border-white/10 hover:border-violet/50 capitalize text-sm transition-all duration-200 hover:bg-white/5"
                       >
@@ -1375,7 +1861,6 @@ export function Simulation() {
                           onClick={() => {
                             setSelectedPreset(presetName);
                             setShowPresets(false);
-                            showToast(`"${presetName}" pattern loaded!`)
                           }}
                           className="p-2 rounded-md bg-transparent border-2 border-white/10 hover:border-violet/50 capitalize text-sm transition-all duration-200 hover:bg-white/5"
                         >
@@ -1396,7 +1881,7 @@ export function Simulation() {
                             setTempPreset([])
                             setSelectedCells(new Set())
                             setOriginalCellPositions(new Set())
-                            showToast(`"${name.trim()}" saved as custom preset!`)
+                            showToast(`Saved preset "${name.trim()}" successfully!`, "success")
                           }
                         }}
                         className="p-2 rounded-md bg-green-600/20 border-2 border-green-500 hover:border-green-400 text-green-400 text-sm transition-all duration-200 hover:bg-green-600/30"
@@ -1561,6 +2046,24 @@ export function Simulation() {
                     style={{ background: "hsl(180, 70%, 60%)" }}
                     title="Cyan"
                   />
+                  <button 
+                    onClick={() => {
+                      setColorCycle(false)
+                      setHue(20)
+                    }}
+                    className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
+                    style={{ background: "hsl(20, 70%, 60%)" }}
+                    title="Orange"
+                  />
+                  <button 
+                    onClick={() => {
+                      setColorCycle(false)
+                      setHue(50)
+                    }}
+                    className="w-8 h-8 rounded border-2 border-white/20 cursor-pointer hover:scale-110 transition-transform"
+                    style={{ background: "hsl(50, 70%, 60%)" }}
+                    title="Yellow"
+                  />
                   <button
                     onClick={() => {
                       setColorCycle(false)
@@ -1595,35 +2098,6 @@ export function Simulation() {
           </Button>
         </div>
       </div>
-
-      <WebGLRenderer
-        cells={grid.getAllCells()}
-        blueprintCells={blueprintCells}
-        selectionBox={isSelectingForExport ? exportSelectionBox : (persistentSelection ? persistentSelection.box : selectionBox)}
-        selectedCells={selectedCells}
-        panX={panX}
-        panY={panY}
-        zoom={zoom}
-        hue={hue}
-        showGrid={showGrid}
-        width={typeof window !== "undefined" ? window.innerWidth : 1920}
-        height={typeof window !== "undefined" ? window.innerHeight : 1080}
-        onClick={handleCanvasClick}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMoveCanvas}
-        onMouseUp={handleMouseUp}
-        onWheel={handleWheel}
-        onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => e.preventDefault()}
-        canvasRef={canvasRef}
-        className={`w-full h-full ${isKeyboardPanning ? "cursor-none" : cursorOnCell ? "cursor-pointer" : "cursor-crosshair"}`}
-        isKeyboardPanning={isKeyboardPanning}
-        cursorOnCell={cursorOnCell}
-        gridUpdateKey={gridUpdateCounter}
-        persistentSelection={persistentSelection}
-        isSelectingForExport={isSelectingForExport}
-      />
-
-      {/* Floating Mirror Controls - appear above persistent selection */}
       {persistentSelection && (
         <div className="absolute pointer-events-auto z-40">
           {(() => {
@@ -1837,22 +2311,58 @@ export function Simulation() {
         </div>
       )}
 
+      <WebGLRenderer
+        cells={grid.getAllCells()}
+        blueprintCells={blueprintCells}
+        brushPreviewCells={brushPreview?.cells.map(cell => ({ ...cell, type: brushPreview.type === 'singular' ? 'line' : brushPreview.type! })) || []}
+        selectionBox={isExportMode ? exportSelectionBox : (persistentSelection ? persistentSelection.box : selectionBox)}
+        selectedCells={selectedCells}
+        panX={panX}
+        panY={panY}
+        zoom={zoom}
+        hue={hue}
+        showGrid={showGrid}
+        width={typeof window !== "undefined" ? window.innerWidth : 1920}
+        height={typeof window !== "undefined" ? window.innerHeight : 1080}
+        onClick={handleCanvasClick}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMoveCanvas}
+        onMouseUp={handleMouseUp}
+        onWheel={handleWheel}
+        onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => e.preventDefault()}
+        canvasRef={canvasRef}
+        className={`w-full h-full ${
+          editMode === "move" ? "cursor-grab" :
+          editMode === "place" && brushMode === "singular" ? "cursor-crosshair" :
+          editMode === "place" ? "cursor-cell" :
+          editMode === "select" ? "cursor-pointer" :
+          isKeyboardPanning ? "cursor-none" : cursorOnCell ? "cursor-pointer" : "cursor-crosshair"
+        }`}
+        isKeyboardPanning={isKeyboardPanning}
+        cursorOnCell={cursorOnCell}
+        gridUpdateKey={gridUpdateCounter}
+        persistentSelection={persistentSelection}
+        isSelectingForExport={isExportMode}
+      />
+
       <ImportExportModal
         isVisible={showImportExport}
         onClose={() => {
           setShowImportExport(false)
-          // Don't clear tempPreset or export selection state when closing during export selection
-          // Only clear export selection state if it's still active and we're not in the middle of a selection
-          if (isSelectingForExport && tempPreset.length === 0) {
-            setIsSelectingForExport(false)
+          // Cancel export mode and clear cells if still active
+          if (isExportMode) {
+            setIsExportMode(false)
             setExportSelectionBox(null)
-            setEditMode("place")
           }
+          // Clear export cells and exporting state when modal is closed without exporting
+          setExportCells([])
+          setIsExporting(false)
         }}
-        tempPreset={tempPreset}
+        tempPreset={exportCells}
         onExportComplete={handleExportComplete}
         onImportComplete={handleImportComplete}
         onStartExport={handleStartExport}
+        showToast={showToast}
       />
     </main>
   );
