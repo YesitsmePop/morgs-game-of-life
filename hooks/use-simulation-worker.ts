@@ -1,48 +1,64 @@
-// use-simulation-worker.ts - React hook for managing Web Worker simulation
+// handles the game of life sim
+
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ObjectPool } from '@/lib/object-pool'
 import { QuadtreeGrid } from '@/lib/quadtree-grid'
 import { cellKey, parseCellKey, cellKeysToPositions } from "@/lib/cell-utils"
 
+// current sim state
 interface SimulationState {
-  grid: QuadtreeGrid
-  isRunning: boolean
-  speed: number
-  cellCount?: number
-  generation?: number
-  currentAlgorithm?: string
-  performanceStats?: any
+  grid: QuadtreeGrid           // Current grid state
+  isRunning: boolean           // Whether simulation is active
+  speed: number                // Simulation speed in milliseconds
+  cellCount?: number           // Number of live cells
+  generation?: number          // Current generation count
+  currentAlgorithm?: string    // Active simulation algorithm
+  performanceStats?: any       // Performance metrics
+  ruleset?: {                  // Custom ruleset configuration
+    type: 'classic' | 'custom' | 'prime'
+    survival: number[]
+    birth: number[]
+  }
 }
 
+// update from worker
 interface GridUpdate {
-  born: string[]
-  died: string[]
-  timestamp: number
-  speed?: number
-  algorithm?: string
-  stats?: any
+  born: string[]              // Cell keys that were born
+  died: string[]              // Cell keys that died
+  timestamp: number           // When the update occurred
+  speed?: number              // Current simulation speed
+  algorithm?: string          // Active algorithm
+  stats?: any                 // Performance statistics
 }
 
+// main hook
 export function useSimulationWorker() {
-  const [state, setState] = useState<SimulationState>({
-    grid: new QuadtreeGrid(),
-    isRunning: false,
-    speed: 1000,  // Match worker's initial speed (1000ms interval)
-    cellCount: 0,
-    generation: 0,
-    currentAlgorithm: 'spatial',
-    performanceStats: {}
+  // set up state
+  const [state, setState] = useState<SimulationState & { ruleset: any }>({
+    grid: new QuadtreeGrid(),     // Empty grid to start
+    isRunning: false,            // Simulation starts paused
+    speed: 1000,                 // Default to 1 second per generation
+    cellCount: 0,                // No cells initially
+    generation: 0,               // Start at generation 0
+    currentAlgorithm: 'spatial', // Default algorithm
+    performanceStats: {},        // Empty stats object
+    ruleset: {                   // Default ruleset
+      type: 'classic',
+      survival: [2, 3],
+      birth: [3]
+    }
   })
 
-  const workerRef = useRef<Worker | null>(null)
-  const pendingUpdatesRef = useRef<GridUpdate[]>([])
+  // refs
+  const workerRef = useRef<Worker | null>(null)         // Web Worker instance
+  const pendingUpdatesRef = useRef<GridUpdate[]>([])    // Queue of pending updates
 
-  // Create object pool for QuadtreeGrid objects
+  // grid pool for perf
   const gridPool = new ObjectPool(
-    () => new QuadtreeGrid(),
-    (grid) => grid.clear(),
-    5,  // Initial pool size
-    20  // Max pool size
+    () => new QuadtreeGrid(),    // Factory function to create new grids
+    (grid) => grid.clear(),      // Reset function to clean up grids before reuse
+    5,                           // Initial pool size
+    20                           // Maximum number of grids to keep in the pool
   )
 
   // Initialize worker
@@ -239,25 +255,50 @@ export function useSimulationWorker() {
     return state
   }, [state])
 
+  const setMode = useCallback((mode: string) => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'SET_MODE', data: { mode } });
+    }
+  }, [])
+
+  const setRuleset = useCallback((ruleset: { type: 'classic' | 'custom' | 'prime'; survival: number[]; birth: number[] }) => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({ 
+        type: 'SET_RULESET', 
+        data: { ruleset } 
+      });
+      // Update local state immediately for responsive UI
+      setState(prev => ({
+        ...prev,
+        ruleset: { 
+          type: ruleset.type,
+          survival: ruleset.survival,
+          birth: ruleset.birth
+        }
+      }));
+    }
+  }, [])
+
   return {
     // State
     grid: state.grid,
     isRunning: state.isRunning,
     speed: state.speed,
-    cellCount: state.cellCount || 0,
-    generation: state.generation || 0,
-    currentAlgorithm: state.currentAlgorithm || 'spatial',
-    performanceStats: state.performanceStats || {},
-
-    // Controls
+    cellCount: state.cellCount,
+    generation: state.generation,
+    currentAlgorithm: state.currentAlgorithm,
+    performanceStats: state.performanceStats,
+    ruleset: state.ruleset,
+    workerRef,
     startSimulation,
     stopSimulation,
     resetSimulation,
     setSpeed,
+    setMode,
+    setRuleset,
     setLightspeed,
     loadPreset,
     updateGrid,
-    getState,
-    workerRef
+    getState
   }
 }

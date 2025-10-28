@@ -363,10 +363,17 @@ const nextGenerationOptimized = (cells, mode) => {
     }
 
     let shouldBeAlive = false;
-    if (mode === "classic") {
+    const { ruleset } = state || { type: 'classic' };
+    
+    if (ruleset.type === 'classic') {
       shouldBeAlive = isAlive ? (neighbors === 2 || neighbors === 3) : (neighbors === 3);
     } else {
-      shouldBeAlive = isAlive ? (neighbors === 6 || neighbors === 7) : isPrime(neighbors);
+      // Custom ruleset
+      if (isAlive) {
+        shouldBeAlive = (ruleset.survival || [2, 3]).includes(neighbors);
+      } else {
+        shouldBeAlive = (ruleset.birth || [3]).includes(neighbors);
+      }
     }
 
     if (shouldBeAlive) {
@@ -596,7 +603,8 @@ class MassiveBitGrid {
 }
 
 // Ultra-fast Game of Life using massive bit-packed grid (100k+ cells)
-const nextGenerationMassive = (cells, mode = 'classic') => {
+const nextGenerationMassive = (cells, mode = 'classic', ruleset) => {
+  const effectiveRuleset = ruleset || { type: 'classic', survival: [2, 3], birth: [3] };
   const cellCount = cells.size;
 
   // Use massive bit grid for 100k+ cells
@@ -612,13 +620,15 @@ const nextGenerationMassive = (cells, mode = 'classic') => {
   }
 
   // Use optimized for smaller patterns
-  return nextGenerationOptimized(cells, mode);
+  return nextGenerationOptimized(cells, mode, effectiveRuleset);
 };
 
 // Ultra-fast Game of Life - optimized for maximum speed
-const nextGenerationUltraFast = (cells, mode) => {
+const nextGenerationUltraFast = (cells, mode, ruleset) => {
   const newCells = new Set();
   const aliveCells = new Set(cells);
+  const neighborCounts = new Map();
+  const effectiveRuleset = ruleset || { type: 'classic', survival: [2, 3], birth: [3] };
 
   // Pre-calculate bounds for maximum performance
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -638,35 +648,43 @@ const nextGenerationUltraFast = (cells, mode) => {
     maxY: maxY + 1
   };
 
-  // Pre-allocate arrays for neighbor checking to avoid repeated string creation
-  const neighborKeys = new Array(8);
-  const neighborOffsets = NEIGHBOR_OFFSETS;
-
-  // Process all cells in bounds with minimal overhead
-  for (let y = bounds.minY; y <= bounds.maxY; y++) {
-    for (let x = bounds.minX; x <= bounds.maxX; x++) {
-      const cellKey = `${x},${y}`;
-      const isAlive = aliveCells.has(cellKey);
-
-      // Optimized neighbor counting with pre-allocated arrays
-      let neighbors = 0;
-      for (let j = 0; j < NEIGHBOR_COUNT; j++) {
-        const [dx, dy] = neighborOffsets[j];
-        // Use pre-allocated array to avoid repeated string creation
-        neighborKeys[j] = `${x + dx},${y + dy}`;
-        if (aliveCells.has(neighborKeys[j])) neighbors++;
+  // First pass: count neighbors for all cells
+  for (const cell of aliveCells) {
+    const [x, y] = cell.split(',').map(Number);
+    
+    // Check all 8 neighbors
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue; // Skip self
+        
+        const nx = x + dx;
+        const ny = y + dy;
+        const key = `${nx},${ny}`;
+        
+        // Initialize or increment neighbor count
+        neighborCounts.set(key, (neighborCounts.get(key) || 0) + 1);
       }
+    }
+  }
 
-      // Apply rules
-      let shouldBeAlive = false;
-      if (mode === "classic") {
-        shouldBeAlive = isAlive ? (neighbors === 2 || neighbors === 3) : (neighbors === 3);
-      } else {
-        shouldBeAlive = isAlive ? (neighbors === 6 || neighbors === 7) : isPrime(neighbors);
+  // Second pass: apply rules to all cells with neighbors
+  for (const [key, count] of neighborCounts) {
+    const isAlive = aliveCells.has(key);
+    
+    // Apply rules
+    if (isAlive) {
+      // Survival rules
+      if (ruleset.type === 'classic') {
+        if (count === 2 || count === 3) newCells.add(key);
+      } else if ((ruleset.survival || [2, 3]).includes(count)) {
+        newCells.add(key);
       }
-
-      if (shouldBeAlive) {
-        newCells.add(cellKey);
+    } else {
+      // Birth rules
+      if (ruleset.type === 'classic') {
+        if (count === 3) newCells.add(key);
+      } else if ((ruleset.birth || [3]).includes(count)) {
+        newCells.add(key);
       }
     }
   }
@@ -674,58 +692,57 @@ const nextGenerationUltraFast = (cells, mode) => {
   return newCells;
 };
 
-// Simple Algorithm
-const nextGenerationSimple = (cells, mode) => {
+// Simple Game of Life implementation
+const nextGenerationSimple = (cells, mode, ruleset) => {
   const newCells = new Set();
+  const aliveCells = new Set(cells);
+  const neighborCounts = new Map();
+  
+  // Use provided ruleset or fallback to classic
+  const effectiveRuleset = ruleset || { type: 'classic', survival: [2, 3], birth: [3] };
 
-  // Find bounds to optimize processing
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  cells.forEach(cellKey => {
-    const [x, y] = cellKey.split(',').map(Number);
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  });
-
-  // Expand bounds for neighbor checking
-  const bounds = {
-    minX: minX - 1,
-    maxX: maxX + 1,
-    minY: minY - 1,
-    maxY: maxY + 1
-  };
-
-  // Process all cells in expanded bounds
-  for (let y = bounds.minY; y <= bounds.maxY; y++) {
-    for (let x = bounds.minX; x <= bounds.maxX; x++) {
-      const neighbors = countNeighborsSimple(cells, x, y);
-      const isAlive = cells.has(`${x},${y}`);
-
-      let shouldBeAlive = false;
-      if (mode === "classic") {
-        shouldBeAlive = isAlive ? (neighbors === 2 || neighbors === 3) : (neighbors === 3);
-      } else {
-        shouldBeAlive = isAlive ? (neighbors === 6 || neighbors === 7) : isPrime(neighbors);
+  // First pass: count neighbors for all live cells and their neighbors
+  for (const cell of cells) {
+    const [x, y] = cell.split(',').map(Number);
+    
+    // Check all 8 neighbors
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue; // Skip self
+        
+        const nx = x + dx;
+        const ny = y + dy;
+        const key = `${nx},${ny}`;
+        
+        // Initialize or increment neighbor count
+        neighborCounts.set(key, (neighborCounts.get(key) || 0) + 1);
       }
+    }
+  }
 
-      if (shouldBeAlive) {
-        newCells.add(`${x},${y}`);
+  // Second pass: apply rules to all cells with neighbors
+  for (const [key, count] of neighborCounts) {
+    const isAlive = aliveCells.has(key);
+    
+    // Apply rules based on ruleset
+    if (isAlive) {
+      // Survival rules
+      if (effectiveRuleset.type === 'classic') {
+        if (count === 2 || count === 3) newCells.add(key);
+      } else if ((effectiveRuleset.survival || [2, 3]).includes(count)) {
+        newCells.add(key);
+      }
+    } else {
+      // Birth rules
+      if (effectiveRuleset.type === 'classic') {
+        if (count === 3) newCells.add(key);
+      } else if ((effectiveRuleset.birth || [3]).includes(count)) {
+        newCells.add(key);
       }
     }
   }
 
   return newCells;
-};
-
-// Count Neighbors Simple - optimized
-const countNeighborsSimple = (cells, x, y) => {
-  let count = 0;
-  for (let j = 0; j < NEIGHBOR_COUNT; j++) {
-    const [dx, dy] = NEIGHBOR_OFFSETS[j];
-    if (cells.has(`${x + dx},${y + dy}`)) count++;
-  }
-  return count;
 };
 
 // Next Generation With Diff
@@ -735,23 +752,26 @@ const nextGenerationWithDiff = (grid, mode) => {
   // Convert quadtree cells to set for adaptive computation
   const cells = grid.getAllCells();
   const cellCount = cells.size;
-
   let newCells;
-  let algorithm = 'simple';
+  let algorithm;
+  
+  // Get the current ruleset from state
+  const { ruleset } = state || { type: 'classic' };
+  const rulesetContext = ruleset || { type: 'classic', survival: [2, 3], birth: [3] };
 
   // Select algorithm based on cell count only (removed state.speed dependency)
   if (cellCount > 50000) {
     algorithm = 'massive';
-    newCells = nextGenerationMassive(cells, mode);
+    newCells = nextGenerationMassive(cells, mode, rulesetContext);
   } else if (cellCount > 5000) {
     algorithm = 'ultraFast';
-    newCells = nextGenerationUltraFast(cells, mode);
+    newCells = nextGenerationUltraFast(cells, mode, rulesetContext);
   } else if (cellCount > 1000) {
     algorithm = 'optimized';
-    newCells = nextGenerationOptimized(cells, mode);
+    newCells = nextGenerationOptimized(cells, mode, rulesetContext);
   } else {
     algorithm = 'simple';
-    newCells = nextGenerationSimple(cells, mode);
+    newCells = nextGenerationSimple(cells, mode, rulesetContext);
   }
 
   // Convert back to quadtree using pool
@@ -977,6 +997,11 @@ self.onmessage = function(event) {
       sendStateUpdate();
       break;
 
+    case 'SET_RULESET':
+      state.ruleset = data.ruleset;
+      sendStateUpdate();
+      break;
+
     case 'SET_SPEED':
       state.speed = data.speed;
       sendStateUpdate();
@@ -1153,6 +1178,11 @@ function sendStateUpdate() {
 let state = {
   grid: gridPool.acquire(),
   mode: 'classic',
+  ruleset: {
+    type: 'classic',
+    survival: [2, 3],
+    birth: [3]
+  },
   speed: 1000,
   isRunning: false,
   lastUpdateTime: 0,

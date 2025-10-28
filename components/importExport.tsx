@@ -84,7 +84,7 @@ export function ImportExportModal({
   if (!isVisible) return null
 
   return (
-    <Dialog open={isVisible} onOpenChange={undefined}>
+    <Dialog open={isVisible} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="glass-card border-electric-blue/50 max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-foreground text-center">

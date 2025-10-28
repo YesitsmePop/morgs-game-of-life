@@ -19,14 +19,14 @@ export default function Home() {
       <CursorGlow />
 
       <div className="relative z-10 flex flex-col items-center gap-12 px-4 animate-fade-in">
-        {/* Main title */}
-  <h1 className="font-[family-name:var(--font-playfair)] text-4xl md:text-8xl font-bold text-center text-balance tracking-tight">
-          <span className="text-black">
-            MORG&apos;S
-          </span>
-          <br />
-          <span className="text-foreground">GAME OF LIFE</span>
-        </h1>
+        {/* Logo */}
+  <div className="relative w-full max-w-2xl">
+    <img 
+      src="/logo.png" 
+      alt="Morg's Game of Life" 
+      className="w-full h-auto"
+    />
+  </div>
 
   {/* Credit line */}
   <p className="mt-2 text-sm text-black opacity-90">Developed by Morgan McDonald - Inspired by Conway's Game of Life</p>

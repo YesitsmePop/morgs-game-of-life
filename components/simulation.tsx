@@ -8,6 +8,7 @@ import { QuadtreeGrid } from "@/lib/quadtree-grid"
 import { ImportExportModal } from "@/components/importExport"
 import { WebGLRenderer } from "@/components/webgl-renderer"
 import { useSimulationWorker } from "@/hooks/use-simulation-worker"
+import { RulesetPanel } from "@/components/ruleset-panel"
 
 const CELL_SIZE = 20
 const MIN_ZOOM = 0.01
@@ -19,7 +20,26 @@ import { loadPresetsFromFile } from "@/lib/preset-parser"
 
 export function Simulation() {
   // Use worker for simulation logic
-  const { grid, isRunning, speed, startSimulation, stopSimulation, resetSimulation, setSpeed, setLightspeed, loadPreset, updateGrid, getState, cellCount, workerRef, generation, currentAlgorithm, performanceStats } = useSimulationWorker()
+  const { 
+    grid, 
+    isRunning, 
+    speed, 
+    startSimulation, 
+    stopSimulation, 
+    resetSimulation, 
+    setSpeed, 
+    setLightspeed, 
+    loadPreset, 
+    updateGrid, 
+    getState, 
+    cellCount = 0, 
+    workerRef, 
+    generation, 
+    currentAlgorithm, 
+    performanceStats,
+    setRuleset,
+    ruleset
+  } = useSimulationWorker()
 
   // UI state (worker doesn't need to know about these)
   const [hue, setHue] = useState(270) // Default violet
@@ -1684,7 +1704,13 @@ const handleMouseMoveCanvas = (e: React.MouseEvent<HTMLCanvasElement>) => {
 
       {/* Top Center - Status */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2">
-        <h2 className="font-[family-name:var(--font-playfair)] text-lg md:text-2xl font-bold text-foreground">MORG&apos;S GAME OF LIFE</h2>
+        <div className="w-32 md:w-48">
+          <img 
+            src="/logo.png" 
+            alt="Morg's Game of Life" 
+            className="w-full h-auto"
+          />
+        </div>
         <div className="flex items-center gap-4 flex-wrap justify-center">
           <div className="glass-card border border-electric-blue/30 rounded-lg px-3 py-1 bg-gradient-to-r from-violet/10 to-purple/10 backdrop-blur-sm">
             <span className="text-sm md:text-base text-foreground/90 font-mono font-medium">
@@ -1708,9 +1734,15 @@ const handleMouseMoveCanvas = (e: React.MouseEvent<HTMLCanvasElement>) => {
         </div>
       </div>
 
-      {/* Top Right - Help */}
-      <div className="absolute top-4 right-4 z-30">
-        <div className="relative">
+      {/* Top Right - Controls */}
+      <div className="absolute top-4 right-4 z-30 flex flex-col gap-2 items-end">
+        {/* Ruleset Panel */}
+        <RulesetPanel 
+          onRulesetChange={setRuleset}
+          className="w-64 mb-2"
+        />
+        
+        <div className="flex gap-2">
           <Button
             onClick={() => setShowControls(!showControls)}
             size="sm"
